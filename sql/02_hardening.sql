@@ -47,12 +47,15 @@
 --   2. elk volgend signaal is exact het vorige volgnummer plus een
 --   3. het verwijst naar het controlegetal van het huidige laatste signaal
 --   4. er zitten minstens 28 kalenderdagen tussen twee signaaldatums
---   5. de signaaldatum ligt niet in de toekomst
 --
 -- En twee dingen die moesten kloppen maar niet nagekeken werden:
 --
---   6. created_at_utc in de kolom is hetzelfde moment als in de gehashte tekst
---   7. formule en versie horen bij de strategie waarnaar verwezen wordt
+--   5. created_at_utc in de kolom is hetzelfde moment als in de gehashte tekst
+--   6. formule en versie horen bij de strategie waarnaar verwezen wordt
+--
+-- En als laatste, bewust achteraan, een vangnet:
+--
+--   7. de signaaldatum ligt niet in de toekomst
 --
 -- Over twee tegelijk: de keten wordt onder slot gelezen. Zonder dat slot
 -- kunnen twee gelijktijdige pogingen allebei hetzelfde laatste signaal zien
@@ -113,12 +116,6 @@ begin
     end if;
   end if;
 
-  if new.signal_market_date > vandaag_ny then
-    raise exception 'De signaaldatum % ligt in de toekomst (in New York is het %).',
-      new.signal_market_date, vandaag_ny
-      using hint = 'Een keuze kan niet gemaakt zijn op een beursdag die nog moet komen.';
-  end if;
-
   -- Het moment van vastleggen staat in de gehashte tekst. De kolom moet
   -- dat moment zijn en niets anders, anders kan een record zich jonger of
   -- ouder voordoen dan wat er bewezen is.
@@ -152,6 +149,19 @@ begin
     raise exception 'De strategieversie in dit signaal (%) hoort niet bij strategie %.',
       new.strategy_version, new.strategy_hash
       using hint = 'Versie en hash horen onlosmakelijk bij elkaar.';
+  end if;
+
+  -- Deze staat met opzet helemaal achteraan. Een keuze kan niet gemaakt zijn
+  -- op een beursdag die nog moet komen, dus dit is altijd fout. Juist daardoor
+  -- is het een vangnet: elke andere regel krijgt eerst de kans om te zeggen wat
+  -- er precies mis is, en wat er dan nog doorheen zou glippen, strandt hier.
+  -- scripts/controleer_slot.py bouwt zijn aanvallen hierop: elk vervalst
+  -- signaal draagt een datum in de toekomst, zodat een ontbrekende regel geen
+  -- vals signaal in de keten kan achterlaten.
+  if new.signal_market_date > vandaag_ny then
+    raise exception 'De signaaldatum % ligt in de toekomst (in New York is het %).',
+      new.signal_market_date, vandaag_ny
+      using hint = 'Een keuze kan niet gemaakt zijn op een beursdag die nog moet komen.';
   end if;
 
   return new;

@@ -216,8 +216,11 @@ volgnummer precies een hoger, verwijzing naar het controlegetal van het huidige
 laatste signaal, minstens 28 dagen ertussen, formule én versie die werkelijk bij
 de strategie horen, `created_at_utc` die klopt met de gehashte tekst, en de
 keten-punt die onder slot gelezen wordt (`pg_advisory_xact_lock`) zodat twee
-gelijktijdige pogingen geen twee ketens kunnen maken. Bij `executions` worden nu
-ook `fx_source` en `fx_asof` nagerekend.
+gelijktijdige pogingen geen twee ketens kunnen maken. Als laatste, bewust
+achteraan, een vangnet: een signaaldatum die nog moet komen wordt altijd
+geweigerd. Daar bouwt `scripts/controleer_slot.py` zijn aanvallen op, zodat een
+ontbrekende regel nooit een vals signaal kan achterlaten. Bij `executions`
+worden nu ook `fx_source` en `fx_asof` nagerekend.
 
 **3. De geheime sleutel is uit GitHub.** De dagelijkse taak schrijft via een
 databasefunctie `leg_dagkoersen_vast()` die alleen koersen mag toevoegen, met

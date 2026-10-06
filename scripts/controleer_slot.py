@@ -10,13 +10,13 @@ komen of de beveiligingen daarachter werken.
 
 Twee dingen die hier bewust ingebouwd zijn
 ==========================================
-1. ELK VERVALST SIGNAAL DRAAGT EEN ONECHTE STRATEGIEVERSIE.
-   Dat is het vangnet. De database weigert elk signaal waarvan de versie niet
-   bij de strategie hoort, en die controle staat als laatste in de rij. Zo
-   krijgt elke aanval eerst de kans om op zijn eigen regel te stranden - en als
-   die regel er niet zou staan, blijft het vangnet over. Zonder zo'n vangnet
-   zou een aanval die een gat vindt een vals signaal in de keten zetten, en
-   dat is niet meer weg te halen.
+1. ELK VERVALST SIGNAAL DRAAGT EEN DATUM IN DE TOEKOMST.
+   Dat is het vangnet. Een keuze kan niet gemaakt zijn op een beursdag die nog
+   moet komen, dus de database weigert zo'n record altijd - en die controle
+   staat als laatste in de rij. Zo krijgt elke aanval eerst de kans om op zijn
+   eigen regel te stranden, en wat er door een ontbrekende regel heen zou
+   glippen, strandt alsnog. Zonder zo'n vangnet zou een aanval die een gat
+   vindt een vals signaal in de keten zetten, en dat is niet meer weg te halen.
 
 2. HET VANGNET WORDT ALS EERSTE GETEST.
    Werkt dat niet zoals verwacht, dan stopt dit script onmiddellijk en wordt
@@ -32,7 +32,6 @@ from __future__ import annotations
 
 import json
 import sys
-from datetime import date, timedelta
 from pathlib import Path
 
 import requests
@@ -49,9 +48,9 @@ GEHEIM = cfg["SUPABASE_SERVICE_KEY"]
 LEZEN = cfg.get("SUPABASE_ANON_KEY")
 TEKEN = cfg.get("SNAPSHOT_WRITE_TOKEN")
 
-# Zo'n versie bestaat niet in de tabel strategies. Daarom weigert de database
-# elk record dat hem draagt, wat er verder ook in staat.
-AANVALSVERSIE = "AANVALSTEST_GEEN_ECHTE_VERSIE"
+# Een beursdag die nog moet komen. Daarom weigert de database elk record dat
+# deze datum draagt, wat er verder ook in staat.
+AANVALSDATUM = "2027-01-04"
 
 uitslagen = []
 
@@ -102,17 +101,17 @@ def maak_record(echt: dict, **afwijkingen) -> dict:
     """Bouwt een signaalrecord met kloppend controlegetal en kloppende keten.
 
     Alles sluit aan bij het echte laatste signaal: het volgnummer erna, het
-    juiste controlegetal van de voorganger, een datum ruim 28 dagen later. Zo
+    juiste controlegetal van de voorganger, de juiste formule en versie. Zo
     komt de aanval voorbij alle lagen en wordt de regel die je wilt testen
     werkelijk op de proef gesteld.
 
-    Behalve de strategieversie: die is onecht, en dat is het vangnet.
+    Behalve de signaaldatum: die ligt in de toekomst, en dat is het vangnet.
     """
     payload = {
         "record_type": "signal",
         "schema_version": 1,
-        "created_at_utc": "2027-01-04T21:00:00+00:00",
-        "signal_market_date": "2027-01-04",
+        "created_at_utc": AANVALSDATUM + "T21:00:00+00:00",
+        "signal_market_date": AANVALSDATUM,
         "universe_source": echt["universe_source"],
         "universe_hash": "f" * 64,
         "universe_count": 500,
@@ -123,7 +122,7 @@ def maak_record(echt: dict, **afwijkingen) -> dict:
         "formula_spec": echt["formula_spec"],
         "previous_hash": echt["entry_hash"],
         "strategy_hash": echt["strategy_hash"],
-        "strategy_version": AANVALSVERSIE,
+        "strategy_version": echt["strategy_version"],
     }
     payload.update({k: v for k, v in afwijkingen.items() if k in payload})
 
@@ -281,24 +280,24 @@ poging("een vastgelegde slotkoers wijzigen", "mislukken", lambda: requests.patch
 
 # ===========================================================================
 if ketenregels:
-    print("\n2. HET VANGNET: EEN ONECHTE STRATEGIEVERSIE")
+    print("\n2. HET VANGNET: EEN SIGNAALDATUM DIE NOG MOET KOMEN")
     print("   (werkt dit niet, dan stopt het script hier)")
 
     vangnet = poging(
-        "een verder volkomen geldig signaal met een onechte strategieversie",
+        "een verder volkomen geldig signaal, gedateerd in de toekomst",
         "mislukken",
         lambda: requests.post(
             f"{URL}/rest/v1/signals", headers=koppen(GEHEIM),
             data=json.dumps(maak_record(doel)), timeout=30),
-        melding_bevat="strategieversie")
+        melding_bevat="toekomst")
 
     if not vangnet:
         print()
         print("   " + "!" * 70)
         print("   Het vangnet werkt niet zoals verwacht. Er worden geen verdere")
         print("   pogingen gedaan: die zouden een vals signaal kunnen achterlaten.")
-        print("   Zoek eerst uit waarom public.controleer_keten() de onechte")
-        print("   strategieversie niet weigert.")
+        print("   Zoek eerst uit waarom public.controleer_keten() een signaaldatum")
+        print("   in de toekomst niet weigert.")
         print("   " + "!" * 70)
         print(f"\nLET OP: {uitslagen.count(False)} van de {len(uitslagen)} controles ging mis.")
         sys.exit(1)
@@ -330,13 +329,11 @@ if ketenregels:
         data=json.dumps(maak_record(doel, previous_hash="GENESIS")), timeout=30),
         melding_bevat="laatste signaal")
 
-    te_snel = str(date.fromisoformat(doel["signal_market_date"]) + timedelta(days=14))
+    # Deze draagt de datum van het vorige signaal. Dat is twee keer fout - te
+    # vroeg, en die datum is al gebruikt - en dus ook zonder de 28-dagenregel
+    # onmogelijk. Een datum die alleen maar te vroeg is, zou hier niet veilig
+    # te proberen zijn.
     poging("te snel een nieuw signaal (binnen 28 dagen)", "mislukken", lambda: requests.post(
-        f"{URL}/rest/v1/signals", headers=koppen(GEHEIM),
-        data=json.dumps(maak_record(doel, signal_market_date=te_snel)), timeout=30),
-        melding_bevat="Te vroeg")
-
-    poging("een tweede signaal op dezelfde dag", "mislukken", lambda: requests.post(
         f"{URL}/rest/v1/signals", headers=koppen(GEHEIM),
         data=json.dumps(maak_record(doel, signal_market_date=doel["signal_market_date"])),
         timeout=30), melding_bevat="Te vroeg")
@@ -345,6 +342,13 @@ if ketenregels:
         f"{URL}/rest/v1/signals", headers=koppen(GEHEIM),
         data=json.dumps(maak_record(doel, strategy_hash="b" * 64)), timeout=30),
         melding_bevat="strategie")
+
+    poging("een verzonnen strategieversie bij een echte strategie", "mislukken",
+        lambda: requests.post(
+            f"{URL}/rest/v1/signals", headers=koppen(GEHEIM),
+            data=json.dumps(maak_record(doel, strategy_version="SW_SCORE_V4_VERZONNEN")),
+            timeout=30),
+        melding_bevat="strategieversie")
 
     gewijzigde_formule = json.loads(json.dumps(doel["formula_spec"]))
     gewijzigde_formule["weights"]["return_12m_percentile"] = 30
