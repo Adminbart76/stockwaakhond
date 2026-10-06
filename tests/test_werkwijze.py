@@ -110,6 +110,23 @@ def test_de_dagtaak_scheidt_niets_te_doen_van_een_echt_probleem():
     assert komt_voor(meldingen["stop"], "snapshot_write_token ontbreekt")
 
 
+def test_een_te_late_wisselkoers_gooit_de_slotkoersen_niet_weg():
+    """Die koersen staan wél vast. Alleen de wisselkoers wordt overgeslagen.
+
+    De taak hoort daarna nog steeds te falen, want een ontbrekende dag in de
+    wisselkoersen mag niet stilletjes voorbijgaan.
+    """
+    tekst = SNAPSHOT.read_text(encoding="utf-8")
+    meldingen = meldingen_per_afloop(SNAPSHOT)
+    assert not komt_voor(meldingen["stop"], "niet meer betrouwbaar"), (
+        "De taak stopt bij een te late wisselkoers, en schrijft dan ook de "
+        "slotkoersen niet meer weg."
+    )
+    assert "fx_gemist" in tekst and "sys.exit(1)" in tekst, (
+        "Er wordt geen alarm meer geslagen over een ontbrekende wisselkoers."
+    )
+
+
 # ------------------------------------------------------- de verstevigingen
 def test_de_hardening_sql_staat_in_het_project():
     assert HARDENING.exists(), "sql/02_hardening.sql ontbreekt."

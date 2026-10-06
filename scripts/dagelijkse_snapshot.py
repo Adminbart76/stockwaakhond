@@ -155,6 +155,7 @@ if not koersen:
 # Daarna rapporteert Yahoo voor diezelfde datum een ander getal, en dan zou
 # er een koers in de geschiedenis komen die niet bij die dag hoort.
 fx_rij = None
+fx_gemist = ""
 fx_mag, fx_stand, fx_uitleg = pr.wisselkoers_is_definitief(laatste_dag)
 print()
 print("   wisselkoers: " + fx_uitleg)
@@ -172,9 +173,12 @@ if fx_mag:
         fx_rij = {"pair": "EURUSD", "rate": koers, "source": pr.FX_BRON}
         print(f"      1 euro = {koers:.6f} dollar")
 elif fx_stand == "te_laat":
-    stop(
-        "de wisselkoers van vandaag is niet meer betrouwbaar op te halen.\n" + fx_uitleg
-    )
+    # De slotkoersen van die dag staan wél vast en horen gewoon weggeschreven
+    # te worden. Alleen de wisselkoers slaan we over, en daarover wordt
+    # achteraf alarm geslagen: een ontbrekende dag in de wisselkoersen mag
+    # niet stilletjes voorbijgaan.
+    fx_gemist = fx_uitleg
+    print("   de wisselkoers wordt NIET vastgelegd, de slotkoersen wel")
 
 # Koersen voor het scherm. Dit is geen bewijsmateriaal; lukt het niet, dan
 # is dat geen reden om de hele taak te laten falen.
@@ -213,3 +217,16 @@ print("\n" + "=" * 70)
 print(f"KLAAR - {laatste_dag.date()} staat vast en verandert niet meer.")
 print("Uitgevoerd om " + datetime.now(timezone.utc).isoformat())
 print("=" * 70)
+
+if fx_gemist:
+    print()
+    print("=" * 70)
+    print(f"LET OP: de wisselkoers van {laatste_dag.date()} ontbreekt.")
+    print(fx_gemist)
+    print()
+    print("De slotkoersen van die dag staan wel vast. Dit gebeurt als deze taak")
+    print("te laat draait: na middernacht in Londen. De geplande tijd (21:30 UTC)")
+    print("valt het hele jaar door ruim binnen het venster, dus kijk na waarom")
+    print("deze keer later was.")
+    print("=" * 70)
+    sys.exit(1)

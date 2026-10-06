@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 89, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 90, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -168,9 +168,8 @@ alleen bijschrijven   doet de maandscan     leest alleen
 - `sql/01_schema.sql` en `sql/02_hardening.sql` zijn allebei idempotent;
   opnieuw draaien is veilig en verandert geen bestaande rij.
 - `scripts/controleer_slot.py` valt de database aan met de geheime sleutel erbij.
-  Draai dat na elke wijziging aan het schema. Stand 6 oktober 2026: 23 van 23
-  goed; de aanvallen op de nieuwe ketenregels staan erin maar zijn nog niet
-  gedraaid, want de SQL is nog niet uitgevoerd.
+  Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026: 42 van 42
+  goed, tegen de echte database.
 
 Zeven tabellen zijn onaantastbaar gemaakt met een trigger die update en delete
 weigert. Dat is de echte beveiliging: row level security wordt omzeild door de
@@ -198,7 +197,10 @@ had de portefeuille vanaf dag één een winst getoond die niemand had kunnen mak
 ## De hardening van 7 oktober 2026
 
 Opgedragen door Bart op 6 oktober 2026 na een audit van ChatGPT, uitgevoerd op
-7 oktober 2026. Zeven punten, alle zeven gebouwd. De harde grens eromheen,
+7 oktober 2026. Zeven punten, alle zeven gebouwd, en diezelfde nacht ook
+uitgevoerd: de SQL draait in Supabase, het schrijfteken staat erin, de drie
+secrets staan in GitHub en `scripts/controleer_slot.py` geeft 42 van 42 goed
+tegen de echte database. De harde grens eromheen,
 letterlijk van Bart: wijzig nooit het bestaande ledger-record, de bestaande
 execution, de strategiehash, de formule of de historische bewijsbestanden. Dat
 is nagekomen: `forward_log/`, `bewijs/` en `app.py` zijn niet aangeraakt, en
@@ -279,23 +281,14 @@ De bestaande uitvoering van 6 oktober 2026 blijft exact zoals ze is. Haar
 
 ## Wat nu open staat
 
-1. **De verstevigingen staan in de code, maar nog niet in de database.**
-   `sql/02_hardening.sql` is geschreven en nagelezen, maar niet uitgevoerd: er
-   is vanuit hier geen manier om SQL in Supabase te draaien (de REST-koppeling
-   kan dat niet en het databasewachtwoord hoort hier niet te staan). Bart voert
-   het een keer uit in de SQL Editor, daarna de regel bij punt 6 van
-   `SLEUTELS_INVULLEN.txt` voor het schrijfteken, en daarna
-   `python scripts/controleer_slot.py`. Dat script controleert éérst of de
-   regels er werkelijk staan en weigert aan te vallen als dat niet zo is - een
-   vervalst signaal zou er dan immers echt in komen.
+1. **De eerste geplande dagtaak nakijken.** Alles staat erin en is handmatig
+   bewezen, maar de taak van 21:30 UTC heeft nog niet uit zichzelf gedraaid.
+   Kijk de eerstvolgende beursdag bij Actions of ze groen is en of er een
+   wisselkoers bij staat. Draait ze ooit na middernacht in Londen, dan slaat ze
+   de wisselkoers over en wordt ze rood: de slotkoersen staan dan wel vast, maar
+   die dag mist een wisselkoers en dat hoort opgemerkt te worden.
 
-2. **De drie secrets in GitHub zetten:** `SUPABASE_URL`, `SUPABASE_ANON_KEY` en
-   `SNAPSHOT_WRITE_TOKEN`. Niet meer `SUPABASE_SERVICE_KEY`; staat die er nog
-   van eerder, haal hem weg. Dit is een handeling met geheimen, dus Bart doet ze
-   zelf; de namen en waarden staan bij punt 6 van `SLEUTELS_INVULLEN.txt`.
-   Zonder dit draait de dagelijkse taak wel, maar schrijft hij niets weg.
-
-3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
