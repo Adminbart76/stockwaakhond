@@ -8,11 +8,21 @@ stappen die hij werkelijk zelf moet doen.
 | | |
 |---|---|
 | Werkmap | `I:\Mijn Drive\02 – Eigen projecten\stockwaakhond` |
-| GitHub | `Adminbart76/stockwaakhond`, privé |
+| GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
-| Dashboard online | **nog niet uitgerold** |
+| Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
 | Tests | 41, groen op 6 oktober 2026 (`python -m pytest`) |
 | Oorspronkelijke map | `C:\Users\bartr\Downloads\StockWaakhond_V7_forward_test\` — onaangeroerd gelaten |
+
+De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
+privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
+in welke commit dan ook. Dat de code en het logboek openbaar staan is voor een
+forward-test eerder sterk dan zwak — iedereen kan narekenen dat de keuze vooraf
+vastlag.
+
+Het dashboard draait op Python 3.12 met de secrets in de Streamlit-instellingen:
+alleen `SUPABASE_URL`, `SUPABASE_ANON_KEY` en `ADMIN_WACHTWOORD`. De geheime
+schrijfsleutel staat daar met opzet niet: de app leest alleen.
 
 De sleutels staan in `SLEUTELS_INVULLEN.txt`, buiten Git gehouden door
 `.gitignore`. Het beheerderswachtwoord daarin is op 6 oktober 2026 nog leeg.
@@ -124,11 +134,16 @@ geheime sleutel, een trigger niet.
    Belgische tijd: `scripts/leg_instap_vast.py`, of het bestand
    `LEG INSTAP VAST (na 22u20).bat`. Het script weigert zolang de beurs open is,
    want een voorlopige koers mag nooit voor altijd vastgelegd worden.
-2. **Het dashboard uitrollen** op Streamlit Community Cloud, privé, met Bart en
-   zijn broer als kijkers. De sleutels moeten daar in de secrets.
-3. **Een dagelijkse taak** die na de slotbel de koersen in `price_snapshots`
-   zet. Houdt meteen het gratis Supabase-project wakker, dat anders na zeven
-   dagen zonder activiteit pauzeert.
+2. **De drie sleutels als secrets in GitHub zetten**, anders kunnen de
+   workflows niet bij Supabase. Dat is `gh secret set SUPABASE_URL` enzovoort;
+   die handeling werd op 6 oktober geweigerd omdat het om geheimen gaat en moet
+   met Barts toestemming opnieuw. Zonder dit draait de dagelijkse taak wel maar
+   schrijft hij niets weg, en moet de instap met de hand gebeuren.
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+   "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
+   in de app-instellingen onder Sharing alsnog een beperking tot genodigden
+   mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
+   wijzigen niemand. Het e-mailadres van Barts broer is nog niet doorgegeven.
 
 Wat je er níet mee moet doen: de bevroren curve herrekenen met andere kosten,
 de scan in de webapp zetten, of het openstaande kostenpunt zelf beslissen.
