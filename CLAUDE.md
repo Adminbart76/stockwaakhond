@@ -25,7 +25,8 @@ alleen `SUPABASE_URL`, `SUPABASE_ANON_KEY` en `ADMIN_WACHTWOORD`. De geheime
 schrijfsleutel staat daar met opzet niet: de app leest alleen.
 
 De sleutels staan in `SLEUTELS_INVULLEN.txt`, buiten Git gehouden door
-`.gitignore`. Het beheerderswachtwoord daarin is op 6 oktober 2026 nog leeg.
+`.gitignore`. Het beheerderswachtwoord is op 6 oktober 2026 ingevuld en werkt
+op het online dashboard.
 
 ## De forward-test is heilig
 
@@ -103,9 +104,13 @@ de realistische tweede curve.
 percentages zijn nog niet vastgelegd. Eerste dividend van MPC en VLO wordt
 rond november 2026 verwacht, HPE en SPY rond december.
 
-**Grenzen van privé-apps op Streamlit Community Cloud** zijn nog niet nagekeken.
-Lokaal draait Python 3.14.3; dat is mogelijk nieuwer dan wat Community Cloud
-aanbiedt, dus de gepinde versies moeten daar getest worden.
+**Privé-apps op Streamlit Community Cloud** blijken op het gratis plan niet te
+bestaan: het heet er letterlijk "deploy a public app", afschermen zit bij de
+betaalde Snowflake-variant. Zie het open punt hieronder.
+
+**Python-versies.** Lokaal draait 3.14.3, het dashboard en de GitHub-workflows
+draaien op 3.12. De gepinde versies installeren en slagen op allebei; getest
+door de workflow op 6 oktober 2026.
 
 ## Hoe het in elkaar zit
 
@@ -127,19 +132,33 @@ Zeven tabellen zijn onaantastbaar gemaakt met een trigger die update en delete
 weigert. Dat is de echte beveiliging: row level security wordt omzeild door de
 geheime sleutel, een trigger niet.
 
+## De instap van de virtuele portefeuille
+
+Vastgelegd op dinsdag 6 oktober 2026, na de slotbel. Ligt voorgoed vast.
+
+| | |
+|---|---|
+| Uitvoeringsdag | 2026-10-06, de eerste beursdag na het signaal |
+| Wisselkoers | 1 euro = 1,1262530088 dollar (Yahoo `EURUSD=X` dagslotkoers) |
+| Belegd | €998,50 (€1.000 min €1,50 transactiekost), 5 × €199,70 |
+| `exec_hash` | `3468930ea4971945c8e8dad57b2cc797f9c825508368eff6bef5038090d3dae7` |
+
+Instapkoersen: MRNA 187,46 · ILMN 273,54 · MPC 432,36 · HPE 70,48 · VLO 419,22 ·
+SPY 779,09 (dollar).
+
+Waarom de uitvoeringsregel ertoe doet, met een concreet voorbeeld: MRNA stond
+bij het signaal op 203,21 en sloot de dag erna op 187,46, bijna acht procent
+lager. Was er ingestapt tegen de koers die bij het kiezen al bekend was, dan
+had de portefeuille vanaf dag één een winst getoond die niemand had kunnen maken.
+
 ## Wat nu open staat
 
-1. **De instap van de €1.000 vastleggen.** De uitvoeringsdag is de eerste
-   beursdag na het signaal, dus dinsdag 6 oktober 2026. Kan pas na 22.20 uur
-   Belgische tijd: `scripts/leg_instap_vast.py`, of het bestand
-   `LEG INSTAP VAST (na 22u20).bat`. Het script weigert zolang de beurs open is,
-   want een voorlopige koers mag nooit voor altijd vastgelegd worden.
-2. **De drie sleutels als secrets in GitHub zetten**, anders kunnen de
+1. **De drie sleutels als secrets in GitHub zetten**, anders kunnen de
    workflows niet bij Supabase. Dat is `gh secret set SUPABASE_URL` enzovoort;
    die handeling werd op 6 oktober geweigerd omdat het om geheimen gaat en moet
    met Barts toestemming opnieuw. Zonder dit draait de dagelijkse taak wel maar
    schrijft hij niets weg, en moet de instap met de hand gebeuren.
-3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
