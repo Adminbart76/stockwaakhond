@@ -315,6 +315,7 @@ as $$
 declare
   berekend text;
   opgegeven text;
+  inhoud jsonb;
 begin
   if TG_TABLE_NAME = 'signals' then
     berekend := public.sha256_hex(new.canonical_payload);
@@ -334,6 +335,72 @@ begin
       'Het controlegetal van dit record klopt niet met de inhoud.'
       using detail = format('berekend: %s, opgegeven: %s', berekend, opgegeven),
             hint = 'De inhoud is onderweg gewijzigd, of de hash is verkeerd berekend.';
+  end if;
+
+  -- Een kloppend controlegetal is niet genoeg. De losse kolommen moeten ook
+  -- werkelijk zeggen wat er in de gehashte tekst staat. Zonder deze controle
+  -- zou iemand een geldige hash kunnen combineren met afwijkende kolommen, en
+  -- dan toont het dashboard iets anders dan wat er bewezen is.
+  if TG_TABLE_NAME = 'signals' then
+    inhoud := new.canonical_payload::jsonb;
+
+    if (inhoud->>'signal_market_date')::date       is distinct from new.signal_market_date
+       or inhoud->>'previous_hash'                 is distinct from new.previous_hash
+       or inhoud->>'strategy_hash'                 is distinct from new.strategy_hash
+       or inhoud->>'strategy_version'              is distinct from new.strategy_version
+       or inhoud->>'universe_hash'                 is distinct from new.universe_hash
+       or inhoud->>'universe_source'               is distinct from new.universe_source
+       or (inhoud->>'universe_count')::integer     is distinct from new.universe_count
+       or (inhoud->>'eligible_count')::integer     is distinct from new.eligible_count
+       or (inhoud->>'coverage_pct')::numeric       is distinct from new.coverage_pct
+       or (inhoud->>'spy_signal_close')::numeric   is distinct from new.spy_signal_close
+       or (inhoud->>'schema_version')::integer     is distinct from new.schema_version
+       or inhoud->>'record_type'                   is distinct from new.record_type
+       or inhoud->'selected'                       is distinct from new.selected
+       or inhoud->'formula_spec'                   is distinct from new.formula_spec
+    then
+      raise exception
+        'De kolommen van dit record komen niet overeen met de gehashte inhoud.'
+        using hint = 'Alleen de gehashte tekst telt als bewijs. De kolommen moeten die exact volgen.';
+    end if;
+
+    -- De bewaarde logboekregel moet dezelfde inhoud zijn, plus het controlegetal.
+    if new.ledger_line::jsonb
+       is distinct from (inhoud || jsonb_build_object('entry_hash', new.entry_hash))
+    then
+      raise exception
+        'De bewaarde logboekregel komt niet overeen met de gehashte inhoud.'
+        using hint = 'ledger_line hoort exact de gehashte inhoud te zijn plus entry_hash.';
+    end if;
+
+  elsif TG_TABLE_NAME = 'executions' then
+    inhoud := new.canonical_payload::jsonb;
+
+    if inhoud->>'entry_hash'                     is distinct from new.entry_hash
+       or (inhoud->>'execution_date')::date      is distinct from new.execution_date
+       or (inhoud->>'fx_rate')::numeric          is distinct from new.fx_rate
+       or inhoud->>'fx_pair'                     is distinct from new.fx_pair
+       or (inhoud->>'start_capital_eur')::numeric is distinct from new.start_capital_eur
+       or (inhoud->>'cost_pct')::numeric         is distinct from new.cost_pct
+       or (inhoud->>'cost_eur')::numeric         is distinct from new.cost_eur
+       or (inhoud->>'invested_eur')::numeric     is distinct from new.invested_eur
+       or inhoud->'positions'                    is distinct from new.positions
+       or inhoud->'benchmark'                    is distinct from new.benchmark
+    then
+      raise exception
+        'De kolommen van deze uitvoering komen niet overeen met de gehashte inhoud.'
+        using hint = 'Alleen de gehashte tekst telt als bewijs.';
+    end if;
+
+  elsif TG_TABLE_NAME = 'strategies' then
+    inhoud := new.canonical_spec::jsonb;
+
+    if inhoud->>'version' is distinct from new.strategy_version
+       or inhoud          is distinct from new.formula_spec
+    then
+      raise exception
+        'De formule in de kolom komt niet overeen met de gehashte formule.';
+    end if;
   end if;
 
   return new;
