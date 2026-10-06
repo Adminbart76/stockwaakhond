@@ -1,6 +1,24 @@
-streamlit>=1.50
-pandas>=2.2
-numpy>=2.0
-requests>=2.32
-yfinance>=0.2.40
-lxml>=5.0
+# Vaste versies, met opzet.
+#
+# De scoreformule is bevroren en gehasht, maar dat bevriest alleen de
+# beschrijving, niet de uitvoering. Draait de scan ooit op een andere versie
+# van pandas of numpy, dan kan de Top-5 in theorie anders uitvallen zonder dat
+# iemand iets gewijzigd heeft. Voor een forward-test is dat het zwakste punt
+# dat je kunt hebben.
+#
+# Daarom staat hier overal == en nooit >=. Dit zijn de versies waarmee het
+# eerste officiele signaal van 6 oktober 2026 berekend is.
+#
+# Een versie verhogen mag, maar nooit zomaar: draai daarna
+#   python -m pytest
+# en controleer dat de strategiehash nog a399aecc... is.
+
+streamlit==1.65.0
+pandas==3.0.6
+numpy==2.5.3
+yfinance==1.7.0
+requests==2.34.2
+lxml==6.1.3
+
+# alleen nodig om de wachters te draaien
+pytest==9.1.1
