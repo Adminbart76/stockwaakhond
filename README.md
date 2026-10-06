@@ -1,80 +1,99 @@
-# StockWaakhond V7 — bevroren forward-test
+# StockWaakhond V7.1
 
-V7 is geen nieuwe historische backtest.
+Een beleggingsstrategie die vooraf is vastgelegd. We meten wat ze in de praktijk
+doet, en stellen haar achteraf nooit bij.
 
-Het doel is vanaf nu vooraf vastleggen wat StockWaakhond kiest en daarna meten wat werkelijk gebeurt.
+Dit is geen nieuwe analyse van het verleden. Het idee is juist het omgekeerde:
+eerst opschrijven wat de strategie kiest, en daarna pas kijken wat de beurs
+doet. Zo valt er achteraf niets goed te praten.
 
-## Bevroren strategie
+> Proef met virtueel geld. Er worden geen echte orders geplaatst en dit is geen
+> beleggingsadvies.
 
-De scoreformule is exact dezelfde als in V5/V6:
+## De bevroren strategie
 
-- 12m momentum: 25
-- 6m momentum: 20
-- 3m momentum: 15
-- relatieve 6m sterkte versus SPY: 15
-- koers boven MA200: 10
-- MA50 boven MA200: 5
-- lagere 3m volatiliteit: 5
-- kleinere 3m drawdown: 5
+Elk aandeel uit de S&P 500 krijgt een score van 0 tot 100:
 
-Top-5.
-Transactiekost: 0,15% per echte turnover.
+| Punten | Waarvoor |
+|---|---|
+| 25 | rendement over 12 maanden |
+| 20 | rendement over 6 maanden |
+| 15 | rendement over 3 maanden |
+| 15 | hoe het aandeel het deed tegenover SPY, over 6 maanden |
+| 10 | koers boven het 200-daags gemiddelde |
+| 5 | 50-daags gemiddelde boven het 200-daags |
+| 5 | rustiger koersverloop over 3 maanden |
+| 5 | kleinere terugval over 3 maanden |
 
-De formule wordt als JSON geserialiseerd en met SHA-256 gehasht.
-Elke forward-record bevat dezelfde strategiehash.
+De vijf hoogste scores komen in de portefeuille, gelijk verdeeld. Bij een
+gelijke stand wint de alfabetisch eerste, zodat er geen willekeur in zit.
+Transactiekost: 0,15 % per omzet. Een nieuwe selectie mag pas 28 dagen na de
+vorige.
 
-## Append-only ledger
+Deze formule staat vast en wordt niet bijgesteld. Hij wordt als tekst gehasht,
+en die hash staat in elk vastgelegd signaal. Wijzigt er iets, dan klopt de hash
+niet meer en faalt `tests/test_bevroren_strategie.py` onmiddellijk.
 
-Bij iedere selectie schrijft V7 een nieuwe regel naar:
+## Het logboek
 
-    forward_log/ledger.jsonl
+Elke selectie wordt bijgeschreven in `forward_log/ledger.jsonl`, met de datum,
+de vijf aandelen, hun scores en koersen, de bron van de aandelenlijst, en een
+controlegetal dat verwijst naar het vorige record. Samen vormen ze een ketting
+die je niet kunt wijzigen zonder dat het opvalt.
 
-Elke regel bevat:
-- UTC timestamp;
-- signaaldatum;
-- volledige Top-5;
-- score per aandeel;
-- signaalkoers;
-- universum-hash;
-- strategiehash;
-- hash van de vorige regel;
-- hash van de huidige regel.
+Er bestaat geen functie om een vastgelegd signaal te wijzigen, te verwijderen of
+opnieuw te berekenen. Dat is geen vergetelheid: zonder die mogelijkheid bewijst
+de test iets, mét die mogelijkheid niet.
 
-Bij opstart controleert V7 de volledige hash-keten.
-Als een oude regel handmatig is gewijzigd, weigert de app nieuwe records toe te voegen.
+Dezelfde gegevens staan in Supabase, waar zeven tabellen met een trigger
+beschermd zijn tegen wijzigen en wissen — ook met de geheime sleutel, ook vanuit
+de SQL-editor.
 
-## Geen dagelijkse rebalancing
+Het signaal gebruikt altijd de laatste afgesloten slotkoers. De portefeuille
+stapt pas in op de eerstvolgende beursdag, zodat er nooit gehandeld wordt tegen
+een koers die bij het kiezen al bekend was.
 
-De Top-5 wordt gelijkgewogen bij een nieuwe selectie.
-Daarna mogen de gewichten natuurlijk verschuiven.
-Pas bij een volgend forward-signaal wordt opnieuw gelijkgewogen.
+## De virtuele portefeuille
 
-## Geen same-bar look-ahead
+€1.000, gelijk verdeeld over de vijf aandelen.
 
-Het signaal gebruikt de laatste voltooide slotkoers.
-Voor performance geldt pas de eerstvolgende beschikbare handelsdag als uitvoeringsdatum.
+Aankoopkoers, aantal aandelen en wisselkoers worden één keer vastgelegd en
+daarna nooit herberekend. Zo verschuift het rendement niet maanden later,
+wanneer Yahoo oude koersen verlaagt na een dividenduitkering.
 
-## Frequentie
+De benchmark SPY krijgt exact dezelfde inleg, kosten, wisselkoers en startdag.
+Alles wordt in dollar opgeteld en pas op het einde één keer omgezet naar euro,
+zodat het wisselkoerseffect niet dubbel kan tellen.
 
-Na een vastgelegd signaal staat een nieuwe selectie minstens 28 dagen op slot.
-Dit is bewust eenvoudig en voorkomt dat we na enkele slechte dagen onmiddellijk een andere Top-5 kiezen.
+## Gebruiken
 
-## Actueel universum
+Dubbelklik op `BEKIJK DASHBOARD.bat` om het dashboard te openen.
 
-V7 haalt bij iedere nieuwe scan de actuele S&P 500-samenstelling op van Wikipedia en bewaart een hash van dat universum in het forward-record.
+Of met de hand:
 
-## Starten
+```
+python -m pip install -r requirements.txt
+python -m streamlit run streamlit_app.py
+```
 
-Open PowerShell in de uitgepakte map:
+Controleren of alles nog klopt:
 
-    py -m venv .venv
-    .\.venv\Scripts\Activate.ps1
-    python -m pip install -r requirements.txt
-    python -m streamlit run app.py
+```
+python -m pytest                     # 41 wachters op formule, logboek en rekenwerk
+python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
+python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
+```
 
-## Belangrijk
+## Mappen
 
-Maak een backup van de map `forward_log`.
-Dat is vanaf nu het bewijs van de forward-test.
+| | |
+|---|---|
+| `bewijs/` | het bewijsmateriaal. Nooit wijzigen. Begin bij `LEESMIJ.txt`. |
+| `forward_log/` | het werkende logboek |
+| `sw/` | de rekenkern, zonder schermcode |
+| `sql/` | wat er in Supabase draait |
+| `scripts/` | onderhoud en controle |
+| `tests/` | de wachters |
 
-V7 plaatst geen echte beursorders.
+`CLAUDE.md` bevat de stand van zaken, de genomen beslissingen en wat er nog open
+staat.
