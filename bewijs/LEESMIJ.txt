@@ -1,0 +1,99 @@
+WAT STAAT ER IN DEZE MAP?
+=========================
+
+Dit is het bewijsmateriaal van de forward-test van StockWaakhond.
+Een forward-test betekent: eerst opschrijven wat de strategie kiest, en daarna
+pas kijken wat de beurs doet. Zo kun je achteraf niet meer goedpraten.
+
+Deze map is bewust saai en onveranderlijk. Hier wordt nooit iets in gewijzigd.
+Er mag alleen iets bijkomen.
+
+
+DE BESTANDEN
+------------
+
+ledger.jsonl
+   Het logboek van de forward-test. Elke regel is één officiële keuze van vijf
+   aandelen, met de datum, de koersen van dat moment en een reeks
+   controlegetallen. Op 6 oktober 2026 staat er één regel in.
+
+universum_503_symbolen_2026-10-05.json
+universum_503_symbolen_2026-10-05.txt
+   De 503 aandelen waaruit de strategie op 5 oktober 2026 mocht kiezen
+   (de volledige S&P 500-lijst van dat moment). Het logboek bewaarde daar alleen
+   een controlegetal van, niet de lijst zelf. Die lijst is op 6 oktober 2026
+   opgehaald en het controlegetal kwam exact overeen. Daarom ligt de lijst nu
+   ook vast. Wikipedia verandert immers; dit bestand niet.
+
+verificatie_2026-10-06.txt
+   Het controleverslag in woorden. Lees dit als je wil weten of alles klopte.
+
+verificatie_2026-10-06.json
+   Hetzelfde verslag, maar in een vorm die een computer kan nalezen.
+
+app.py.bevroren-2026-10-06
+requirements.txt.bevroren-2026-10-06
+   De programmacode precies zoals ze was op het moment van het eerste signaal.
+   Zo blijft naleesbaar met welke code de keuze gemaakt is.
+
+
+DE CONTROLEGETALLEN
+-------------------
+
+Een controlegetal (een "hash") is een lange reeks tekens die hoort bij een stuk
+tekst. Verander één letter in die tekst en het controlegetal is volledig anders.
+Daarmee kun je bewijzen dat iets niet is aangepast.
+
+Deze getallen horen bij het eerste officiële signaal:
+
+   het signaal zelf (entry_hash)
+   0426e47ccd6e0b4f7fcecd772ce21dc5778db862e359f5eb4d239f5ce8bd5d15
+
+   de scoreformule (strategy_hash)
+   a399aecc207510c77450cd015f4f23e2b3639fc642eb9bcc29e95cbe2b84cc18
+
+   de lijst van 503 aandelen (universe_hash)
+   3114cc28ea6cb1aa0b1025f7ee01fffa9c697244cf64ca20cf013a1c8f9e813b
+
+   het bestand ledger.jsonl als geheel
+   2ae458da12e03b830c8806cde9cfc15bc7c2279cbc9bbafa4f93f9e8eff82608
+
+Klopt een van deze getallen later niet meer, dan is er iets gewijzigd en is de
+test niet meer te vertrouwen. Dan stoppen we en zoeken we eerst uit waarom.
+
+
+HET EERSTE OFFICIELE SIGNAAL
+----------------------------
+
+Strategieversie:  SW_SCORE_V3_FROZEN_2026-10-06
+Signaaldatum:     maandag 5 oktober 2026 (de laatste afgesloten beursdag)
+Vastgelegd:       dinsdag 6 oktober 2026 om 12:49 UTC
+Gekozen uit:      503 aandelen, waarvan 500 genoeg koershistoriek hadden (99,4%)
+
+   1. MRNA   score 94,70   koers bij signaal  203,21 dollar
+   2. ILMN   score 94,10   koers bij signaal  293,69 dollar
+   3. MPC    score 93,91   koers bij signaal  433,47 dollar
+   4. HPE    score 93,68   koers bij signaal   68,36 dollar
+   5. VLO    score 93,68   koers bij signaal  419,33 dollar
+
+   SPY (de vergelijkingsmaatstaf): 774,83 dollar
+
+HPE en VLO hadden exact dezelfde score. Bij gelijke stand kiest de strategie
+altijd alfabetisch, zodat er nooit willekeur in de volgorde zit.
+
+Belangrijk: deze koersen zijn de koersen van de signaaldag, niet de koersen
+waartegen de virtuele portefeuille instapt. Instappen gebeurt tegen de
+slotkoers van de eerste beursdag ná het signaal, dus dinsdag 6 oktober 2026.
+Dat is bewust: op het moment dat de keuze werd vastgelegd, was die koers nog
+niet bekend.
+
+
+DE REGELS DIE NIET MEER VERANDEREN
+----------------------------------
+
+- De scoreformule blijft exact zoals ze is. Geen bijsturen, ook niet na verlies.
+- Een eenmaal vastgelegde keuze wordt nooit gewijzigd, verwijderd of herrekend.
+- Een nieuwe keuze mag pas 28 dagen na de vorige. De volgende is dus mogelijk
+  vanaf maandag 2 november 2026, in de praktijk dinsdag 3 november.
+- Wil je later een andere strategie uitproberen, dan krijgt die een eigen naam
+  en een eigen logboek. Deze test blijft er los van staan.

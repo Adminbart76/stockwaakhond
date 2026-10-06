@@ -1,0 +1,25 @@
+# Geheimen - mogen nooit in GitHub
+SLEUTELS_INVULLEN.txt
+.streamlit/secrets.toml
+.env
+*.key
+*.pem
+geheimen*
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# Besturingssysteem
+Thumbs.db
+desktop.ini
+~$*
+
+# Tijdelijke kopieen
+*.bak
+*.tmp

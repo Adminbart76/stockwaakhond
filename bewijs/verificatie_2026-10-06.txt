@@ -1,0 +1,52 @@
+VERIFICATIE EN VEILIGSTELLING VAN DE BEVROREN FORWARD-TEST
+StockWaakhond V7 - strategieversie SW_SCORE_V3_FROZEN_2026-10-06
+Uitgevoerd op 2026-10-06T14:24:02.137954+00:00 (UTC)
+==============================================================================
+
+1. BRONBESTAND
+   pad            : C:\Users\bartr\Downloads\StockWaakhond_V7_forward_test\StockWaakhond_V7\forward_log\ledger.jsonl
+   grootte        : 1608 bytes
+   sha256 bestand : 2ae458da12e03b830c8806cde9cfc15bc7c2279cbc9bbafa4f93f9e8eff82608
+   regels         : 1
+
+2. HASH-KETEN
+   regel 1: schakel naar voorganger OK | inhoud ongewijzigd OK | strategiehash past bij formule OK
+      previous_hash : GENESIS
+      entry_hash    : 0426e47ccd6e0b4f7fcecd772ce21dc5778db862e359f5eb4d239f5ce8bd5d15
+      strategy_hash : a399aecc207510c77450cd015f4f23e2b3639fc642eb9bcc29e95cbe2b84cc18
+   EINDOORDEEL KETEN: INTACT
+
+3. INHOUD VAN HET EERSTE OFFICIELE SIGNAAL
+   signaaldatum (laatste voltooide koersdag) : 2026-10-05 (Monday)
+   vastgelegd op (UTC)                       : 2026-10-06T12:49:41.375795+00:00
+   universum                                 : 503 symbolen
+   bruikbare kandidaten                      : 500
+   dekking                                   : 99.403579%  (herberekend 99.403579% -> gelijk)
+   SPY-slotkoers bij signaal                 : 774.83001709 USD
+   Top-5:
+      1. MRNA  score   94.7   signaalkoers   203.21000671 USD
+      2. ILMN  score   94.1   signaalkoers   293.69000244 USD
+      3. MPC   score  93.91   signaalkoers   433.47000122 USD
+      4. HPE   score  93.68   signaalkoers    68.36000061 USD
+      5. VLO   score  93.68   signaalkoers   419.32998657 USD
+   gelijke scores op plaats 4 en 5 (93.68) -> alfabetisch gerangschikt: HPE voor VLO
+
+4. UNIVERSUM-HASH ONAFHANKELIJK GECONTROLEERD
+   bron: https://en.wikipedia.org/wiki/List_of_S%26P_500_companies
+   symbolen nu op Wikipedia : 503
+   universe_hash herberekend: 3114cc28ea6cb1aa0b1025f7ee01fffa9c697244cf64ca20cf013a1c8f9e813b
+   universe_hash in ledger  : 3114cc28ea6cb1aa0b1025f7ee01fffa9c697244cf64ca20cf013a1c8f9e813b
+   -> REPRODUCEERBAAR: de symbolenlijst is exact dezelfde als bij het signaal.
+   sha256 van de opgehaalde Wikipedia-pagina: edd3004a4dae3467f0b05b860a697889802bb9e0644a0bd370d57f0e02f6eed0
+
+5. VEILIGGESTELDE BESTANDEN
+   ledger.jsonl                                 sha256 2ae458da12e03b830c8806cde9cfc15bc7c2279cbc9bbafa4f93f9e8eff82608
+   -> kopie byte-identiek aan origineel: JA
+   universum_503_symbolen_2026-10-05.json       sha256 44ce3fc90cb25d645d7a20768633b95be7de1bee7b56255bcb710a3982b8168a
+   universum_503_symbolen_2026-10-05.txt        sha256 081344a8fe3636ceee4181bcea1d274786a4a15d5646201221c96840e0e1688c
+   app.py.bevroren-2026-10-06                   sha256 7ad8937e8e0062375cf708e6c0300d2a8c445243d61b880142bcfb787e515631
+   requirements.txt.bevroren-2026-10-06         sha256 7853d5bbe0674858317e74a201e8a8ef5649c1a9ee846f9272d6f1fc4ffaead8
+
+==============================================================================
+EINDOORDEEL: ALLES CONTROLEERBAAR EN INTACT
+Het originele bestand in de Downloads-map is niet aangeraakt.
