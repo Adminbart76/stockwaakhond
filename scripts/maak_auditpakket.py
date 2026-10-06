@@ -24,6 +24,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -134,10 +135,11 @@ with tempfile.TemporaryDirectory() as tijdelijk:
     with zipfile.ZipFile(DOEL) as z:
         z.extractall(map_)
 
-    r = subprocess.run([sys.executable, "-m", "pytest", "-q"],
+    r = subprocess.run([sys.executable, "-m", "pytest"],
                        cwd=map_, capture_output=True, text=True)
-    laatste = [l for l in r.stdout.strip().splitlines() if l.strip()][-1:]
-    print("   " + (laatste[0] if laatste else "geen uitvoer"))
+    regels = [l.strip() for l in r.stdout.splitlines() if "passed" in l or "failed" in l]
+    uitslag = regels[-1] if regels else "geen uitslag gevonden"
+    print("   " + uitslag)
     if r.returncode != 0:
         print("   GESTOPT: de tests in het uitgepakte pakket slagen niet.")
         print(r.stdout[-2000:])
@@ -145,9 +147,28 @@ with tempfile.TemporaryDirectory() as tijdelijk:
 
 shutil.rmtree(PROJECT / ".pytest_cache", ignore_errors=True)
 
+
+kop("5. Briefje erbij over wat dit pakket is")
+
+briefje = (
+    "AUDITPAKKET STOCKWAAKHOND V7.1\n"
+    "==============================\n\n"
+    f"gemaakt op  : {datetime.now(timezone.utc).isoformat(timespec='seconds')}\n"
+    f"commit      : {commit}\n"
+    f"bestanden   : {len(bestanden)}\n"
+    f"tests       : {uitslag} (gedraaid in dit uitgepakte pakket)\n\n"
+    "Dit is alles wat in de openbare GitHub-map staat: geen sleutels, geen\n"
+    "wachtwoorden, geen database. De inhoud komt rechtstreeks uit Git.\n\n"
+    "Begin bij audit/VRAAG_2026-10-07.md. Daarin staat per punt wat er\n"
+    "gebouwd is, wat je kunt narekenen en waar je zou moeten aanvallen.\n"
+)
+with zipfile.ZipFile(DOEL, "a", zipfile.ZIP_DEFLATED) as z:
+    z.writestr("audit/PAKKET.txt", briefje)
+print("   audit/PAKKET.txt toegevoegd")
+
 print("\n" + "=" * 70)
 print("KLAAR - het pakket is te versturen.")
-print(f"  {DOEL}")
+print(f"  {DOEL.name}  (in de projectmap)")
 print(f"  commit {commit[:12]}")
 print("Begin bij audit/VRAAG_2026-10-07.md: daarin staat wat er nagekeken moet worden.")
 print("=" * 70)
