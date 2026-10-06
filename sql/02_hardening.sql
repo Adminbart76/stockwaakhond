@@ -275,6 +275,15 @@ create table if not exists privaat.snapshot_sleutels (
 
 revoke all on table privaat.snapshot_sleutels from anon, authenticated;
 
+-- Deze tabel is al onbereikbaar: het schema `privaat` wordt niet door de
+-- web-API bediend en er zijn geen rechten op gegeven. Toch zetten we row level
+-- security aan, zonder ook maar een regel die iets toelaat. Niet omdat het
+-- nodig is, maar omdat de controle van Supabase anders bij elke uitvoering
+-- waarschuwt - en een waarschuwing die je altijd wegklikt, is geen
+-- waarschuwing meer. De functie hieronder leest de tabel als eigenaar en
+-- heeft er dus geen last van.
+alter table privaat.snapshot_sleutels enable row level security;
+
 comment on table privaat.snapshot_sleutels is
   'Controlegetal van het schrijfteken voor dagkoersen. Het teken zelf staat hier niet.';
 
