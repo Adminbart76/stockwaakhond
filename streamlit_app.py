@@ -100,9 +100,53 @@ def haal_vaste_gegevens() -> dict:
 
 @st.cache_data(ttl=3600, show_spinner=False)
 def haal_dagkoersen(tickers: tuple, vanaf: str):
+    """Slotkoersen per dag voor de grafiek.
+
+    Eerst uit onze eigen database, want die koersen liggen vast en schuiven
+    niet meer. Pas als daar te weinig in staat, halen we ze bij Yahoo. Dat
+    scheelt niet alleen wachttijd: Yahoo weigert geregeld verzoeken van
+    gedeelde servers, en dan moet het dashboard het zonder kunnen stellen.
+    """
+    db = Supabase.lezer(CFG)
+
+    koersen = pd.DataFrame()
+    fx = pd.Series(dtype=float)
+
+    try:
+        rijen = db.select(
+            "price_snapshots",
+            f"select=snapshot_date,ticker,close_raw&snapshot_date=gte.{vanaf}"
+            "&order=snapshot_date.asc&limit=5000")
+        if rijen:
+            ruw = pd.DataFrame(rijen)
+            ruw["snapshot_date"] = pd.to_datetime(ruw["snapshot_date"])
+            koersen = ruw.pivot(index="snapshot_date", columns="ticker", values="close_raw")
+            koersen = koersen.astype(float).sort_index()
+            koersen.index.name = None
+
+        fx_rijen = db.select(
+            "fx_snapshots",
+            f"select=snapshot_date,rate&pair=eq.EURUSD&snapshot_date=gte.{vanaf}"
+            "&order=snapshot_date.asc&limit=5000")
+        if fx_rijen:
+            fx = pd.Series(
+                [float(r["rate"]) for r in fx_rijen],
+                index=pd.to_datetime([r["snapshot_date"] for r in fx_rijen]),
+            ).sort_index()
+    except Exception:
+        pass
+
+    compleet = (
+        not koersen.empty
+        and len(fx) >= len(koersen)
+        and all(t in koersen.columns for t in tickers)
+    )
+    if compleet:
+        return koersen, fx, "eigen database"
+
     echt, _ = pr.haal_koersen(list(tickers), start=vanaf)
-    fx = pr.haal_wisselkoers(start=vanaf)
-    return echt, fx
+    fx_yahoo = pr.haal_wisselkoers(start=vanaf)
+    return echt, fx_yahoo, "Yahoo Finance"
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -250,12 +294,17 @@ else:
     # ------------------------------------------------------------ grafieken
     st.header("Verloop sinds de start")
 
+    koersbron = None
     try:
-        echt, fx_reeks = haal_dagkoersen(tuple(tickers + ["SPY"]), instap["execution_date"])
+        echt, fx_reeks, koersbron = haal_dagkoersen(
+            tuple(tickers + ["SPY"]), instap["execution_date"])
         verloop = pf.bouw_verloop(instap, echt, fx_reeks)
     except Exception as fout:
         verloop = pd.DataFrame()
-        st.warning("Het verloop kon niet berekend worden: " + str(fout))
+        st.warning(
+            "Het verloop kon op dit moment niet berekend worden. De cijfers "
+            "hierboven kloppen wel.\n\nTechnische melding: " + str(fout)
+        )
 
     if len(verloop) >= 2:
         lang = pd.concat([
@@ -294,6 +343,10 @@ else:
             "Allebei gestart met €1.000 op dezelfde dag, met dezelfde "
             "transactiekost en dezelfde wisselkoers. Zo meet je het verschil "
             "tussen de twee beleggingen, en niet tussen twee rekenwijzen."
+            + ("  \nDe slotkoersen in deze grafiek liggen vast in onze eigen "
+               "database en veranderen niet meer achteraf."
+               if koersbron == "eigen database" else
+               "  \nDe slotkoersen komen rechtstreeks van Yahoo Finance.")
         )
 
         with st.expander("Deze grafiek als tabel"):
