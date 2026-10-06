@@ -170,6 +170,13 @@ alleen bijschrijven   doet de maandscan     leest alleen
 - `scripts/controleer_slot.py` valt de database aan met de geheime sleutel erbij.
   Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026: 42 van 42
   goed, tegen de echte database.
+- `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
+  externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
+  sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
+  de tests erin gedraaid. De vraag aan de controleur staat in
+  `audit/VRAAG_<datum>.md`: per punt wat er gebouwd is, wat hij kan narekenen
+  en waar hij zou moeten aanvallen. Daar hoort elke nieuwe ronde een eigen
+  bestand te krijgen, niet een wijziging van het vorige.
 
 Zeven tabellen zijn onaantastbaar gemaakt met een trigger die update en delete
 weigert. Dat is de echte beveiliging: row level security wordt omzeild door de
