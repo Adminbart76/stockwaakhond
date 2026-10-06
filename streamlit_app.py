@@ -87,6 +87,10 @@ def getal(waarde: float, decimalen: int = 2) -> str:
 
 
 def pct(waarde: float, met_teken: bool = True) -> str:
+    # Afgerond op twee cijfers is een heel klein verlies gewoon nul. Dan hoort
+    # er geen minteken voor te staan: "-0,00 %" leest als een fout.
+    if round(waarde, 2) == 0:
+        waarde = 0.0
     teken = "+" if (met_teken and waarde > 0) else ""
     return f"{teken}{waarde:.2f}".replace(".", ",") + " %"
 
@@ -166,6 +170,25 @@ def haal_actuele_koersen(tickers: tuple):
     return koersen, tijdstip, (float(fx.iloc[-1]) if len(fx) else None)
 
 
+def laatst_vastgelegd(frame: pd.DataFrame):
+    """Per aandeel de laatste slotkoers die we hebben, en van welke dag die is.
+
+    Dit is de terugvaloptie als de koers van nu niet op te halen is. Het is een
+    echte koers van een echte dag - alleen niet van vandaag, en dat hoort het
+    scherm er dan ook bij te zeggen.
+    """
+    koersen, dagen = {}, {}
+    if frame is None or len(frame) == 0:
+        return koersen, dagen
+    for kolom in frame.columns:
+        reeks = frame[kolom].dropna()
+        reeks = reeks[reeks > 0]
+        if len(reeks):
+            koersen[str(kolom)] = float(reeks.iloc[-1])
+            dagen[str(kolom)] = pd.Timestamp(reeks.index[-1])
+    return koersen, dagen
+
+
 def beurs_status():
     nu = datetime.now(timezone.utc).astimezone(BEURS)
     if nu.weekday() >= 5:
@@ -240,30 +263,85 @@ else:
         "benchmark": uitvoering["benchmark"],
     }
 
+    nodig = tickers + ["SPY"]
+
+    # De vastgelegde dagkoersen uit onze eigen database. Die hebben we toch al
+    # nodig voor de grafiek, en ze zijn tegelijk de terugvaloptie voor
+    # hieronder: een echte slotkoers van een echte dag.
+    dagkoersen, fx_reeks, koersbron, dagkoersen_fout = (
+        pd.DataFrame(), pd.Series(dtype=float), None, None)
     try:
-        koersen_nu, tijdstip, fx_nu = haal_actuele_koersen(tuple(tickers + ["SPY"]))
+        dagkoersen, fx_reeks, koersbron = haal_dagkoersen(
+            tuple(nodig), instap["execution_date"])
+    except Exception as fout:
+        dagkoersen_fout = str(fout)
+
+    try:
+        live, tijdstip, fx_live = haal_actuele_koersen(tuple(nodig))
     except Exception:
-        koersen_nu, tijdstip, fx_nu = {}, None, None
+        live, tijdstip, fx_live = {}, None, None
 
-    verse_koersen = bool(koersen_nu)
-    if not fx_nu:
-        fx_nu = float(uitvoering["fx_rate"])
-    if not koersen_nu:
-        koersen_nu = {p["ticker"]: p["buy_price_usd"] for p in instap["positions"]}
-        koersen_nu["SPY"] = instap["benchmark"]["buy_price_usd"]
+    # De rangorde: eerst de koers van nu, anders de laatst vastgelegde
+    # slotkoers (en dan zegt het scherm van welke dag die is), en is er geen
+    # van beide, dan wordt er geen bedrag getoond. Een bedrag dat eruitziet als
+    # "nu waard" terwijl het de aankoopkoers is, is erger dan geen bedrag.
+    vastgelegd, vastgelegd_op = laatst_vastgelegd(dagkoersen)
+    koersen_nu, koers_van = {}, {}
+    for t in nodig:
+        if live.get(t) and float(live[t]) > 0:
+            koersen_nu[t] = float(live[t])
+            koers_van[t] = None
+        elif vastgelegd.get(t):
+            koersen_nu[t] = vastgelegd[t]
+            koers_van[t] = vastgelegd_op[t]
+    ontbreekt = [t for t in nodig if t not in koersen_nu]
 
-    waardering = pf.waardeer(
-        instap, koersen_nu, fx_nu,
-        datum=str(pd.Timestamp.today().date()),
-        spy_koers_usd=koersen_nu.get("SPY"),
-    )
+    if fx_live:
+        fx_nu, fx_van = float(fx_live), None
+    elif len(fx_reeks):
+        fx_nu, fx_van = float(fx_reeks.iloc[-1]), pd.Timestamp(fx_reeks.index[-1])
+    else:
+        fx_nu, fx_van = None, None
+
+    verouderd = [t for t in nodig if koers_van.get(t) is not None]
+    verse_koersen = not verouderd and not ontbreekt
 
     st.header("Hoe staat de virtuele portefeuille ervoor?")
 
+    waardering = None
+    if ontbreekt or fx_nu is None:
+        if not ontbreekt:
+            zin = ("Er is op dit moment geen betrouwbare wisselkoers: niet van "
+                   "nu en ook geen eerder vastgelegde")
+        elif len(ontbreekt) == len(nodig):
+            zin = ("Er is op dit moment voor geen enkel aandeel een betrouwbare "
+                   "koers: niet van nu en ook geen eerder vastgelegde slotkoers")
+        else:
+            zin = (f"Voor {', '.join(ontbreekt)} is er op dit moment geen "
+                   "betrouwbare koers: niet van nu en ook geen eerder "
+                   "vastgelegde slotkoers")
+        st.warning(
+            "**We kunnen nu niet zeggen wat de portefeuille waard is.**\n\n"
+            f"{zin}. Er wordt dan met opzet "
+            "geen bedrag berekend. Een cijfer dat eruitziet als de waarde van nu "
+            "terwijl het op een oude of verzonnen koers rust, zou erger zijn dan "
+            "geen cijfer.\n\n"
+            "De vastgelegde selectie en de controles onderaan deze pagina "
+            "kloppen onverminderd. Probeer het over een paar minuten opnieuw."
+        )
+    else:
+        waardering = pf.waardeer(
+            instap, koersen_nu, fx_nu,
+            datum=str(pd.Timestamp.today().date()),
+            spy_koers_usd=koersen_nu["SPY"],
+        )
+
+if uitvoering is not None and waardering is not None:
     k1, k2, k3 = st.columns(3)
     k1.metric("Ingelegd", eur(waardering.inleg_eur),
               help="Het virtuele startbedrag. Er is nooit echt geld belegd.")
-    k2.metric("Nu waard", eur(waardering.totaal_eur),
+    k2.metric("Laatst bekende waarde" if verouderd else "Nu waard",
+              eur(waardering.totaal_eur),
               delta=f"{eur_verschil(waardering.resultaat_eur)}  "
                     f"({pct(waardering.resultaat_pct)})")
     k3.metric("Dezelfde €1.000 in SPY", eur(waardering.spy_waarde_eur),
@@ -293,7 +371,19 @@ else:
                if voor > 0 else "De strategie doet het dus minder goed dan de markt.")
         )
 
-    if verse_koersen and tijdstip:
+    if verouderd:
+        dagen = sorted({koers_van[t] for t in verouderd})
+        wanneer = " en ".join(datum_nl(d) for d in dagen)
+        welke = ("alle koersen hierboven zijn de laatst vastgelegde slotkoersen"
+                 if len(verouderd) == len(nodig) else
+                 f"voor {', '.join(verouderd)} staat hierboven de laatst "
+                 f"vastgelegde slotkoers")
+        st.warning(
+            f"**Deze bedragen zijn niet van nu.** De koersen van dit moment "
+            f"konden niet opgehaald worden: {welke}, van {wanneer}. Alles wat "
+            f"de beurs daarna gedaan heeft, zit er niet in. {beurs_uitleg}"
+        )
+    elif tijdstip:
         gemeten = pd.Timestamp(tijdstip)
         if gemeten.tzinfo is None:
             gemeten = gemeten.tz_localize("UTC")
@@ -303,31 +393,33 @@ else:
             f"{gemeten.strftime('%H.%M')} uur. Dit zijn vertraagde koersen van "
             f"Yahoo Finance, geen koersen van dit moment. {beurs_uitleg}"
         )
-    else:
-        st.caption(
-            "De koersen van nu konden niet opgehaald worden. Hierboven staan de "
-            f"koersen van bij de instap. {beurs_uitleg}"
-        )
 
     st.caption(
-        f"Wisselkoers nu: 1 euro = {getal(fx_nu, 4)} dollar. Bij de instap was "
-        f"dat {getal(float(uitvoering['fx_rate']), 4)} dollar."
+        (f"Wisselkoers van {datum_nl(fx_van, met_dag=False)}"
+         if fx_van is not None else "Wisselkoers nu")
+        + f": 1 euro = {getal(fx_nu, 4)} dollar. "
+        + f"Bij de instap was dat {getal(float(uitvoering['fx_rate']), 4)} dollar."
     )
 
-    # ------------------------------------------------------------ grafieken
+
+# ------------------------------------------------------------------ grafieken
+if uitvoering is not None:
     st.header("Verloop sinds de start")
 
-    koersbron = None
-    try:
-        echt, fx_reeks, koersbron = haal_dagkoersen(
-            tuple(tickers + ["SPY"]), instap["execution_date"])
-        verloop = pf.bouw_verloop(instap, echt, fx_reeks)
-    except Exception as fout:
-        verloop = pd.DataFrame()
+    verloop = pd.DataFrame()
+    if dagkoersen_fout:
         st.warning(
-            "Het verloop kon op dit moment niet berekend worden. De cijfers "
-            "hierboven kloppen wel.\n\nTechnische melding: " + str(fout)
+            "Het verloop kon op dit moment niet berekend worden."
+            "\n\nTechnische melding: " + dagkoersen_fout
         )
+    else:
+        try:
+            verloop = pf.bouw_verloop(instap, dagkoersen, fx_reeks)
+        except Exception as fout:
+            st.warning(
+                "Het verloop kon op dit moment niet berekend worden."
+                "\n\nTechnische melding: " + str(fout)
+            )
 
     if len(verloop) >= 2:
         lang = pd.concat([
@@ -394,25 +486,42 @@ else:
             "verschijnt hier het verloop per dag."
         )
 
-    # ------------------------------------------------------------- posities
+
+# ------------------------------------------------------------------- posities
+if uitvoering is not None and waardering is not None:
     st.header("De vijf posities")
 
-    st.dataframe(pd.DataFrame([{
-        "Aandeel": p["ticker"],
-        "Aantal": getal(p["aandelen"], 4),
-        "Gekocht aan": dollar(p["aankoopkoers_usd"]),
-        "Koers nu": dollar(p["koers_usd"]),
-        "Koers in dollar": pct(p["koersrendement_pct"]),
-        "Ingelegd": eur(p["inzet_eur"]),
-        "Nu waard": eur(p["waarde_eur"]),
-        "Resultaat": f"{eur_verschil(p['resultaat_eur'])}  ({pct(p['resultaat_pct'])})",
-        "Deel van de portefeuille": pct(p["aandeel_pct"], met_teken=False),
-    } for p in waardering.posities]), hide_index=True, width="stretch")
+    rijen = []
+    for p in waardering.posities:
+        rij = {
+            "Aandeel": p["ticker"],
+            "Aantal": getal(p["aandelen"], 4),
+            "Gekocht aan": dollar(p["aankoopkoers_usd"]),
+            # Zolang alles van nu is, hoort er "nu" boven. Zodra er een oudere
+            # koers tussen zit, zou die kop tegenspreken wat de kolom ernaast zegt.
+            ("Koers" if verouderd else "Koers nu"): dollar(p["koers_usd"]),
+        }
+        if verouderd:
+            van = koers_van.get(p["ticker"])
+            rij["Koers van"] = "nu" if van is None else pd.Timestamp(van).strftime("%d/%m")
+        rij.update({
+            "Koers in dollar": pct(p["koersrendement_pct"]),
+            "Ingelegd": eur(p["inzet_eur"]),
+            ("Waard" if verouderd else "Nu waard"): eur(p["waarde_eur"]),
+            "Resultaat": f"{eur_verschil(p['resultaat_eur'])}  ({pct(p['resultaat_pct'])})",
+            "Deel van de portefeuille": pct(p["aandeel_pct"], met_teken=False),
+        })
+        rijen.append(rij)
+
+    st.dataframe(pd.DataFrame(rijen), hide_index=True, width="stretch")
 
     st.caption(
         "**Koers in dollar** is de beweging van het aandeel zelf. **Resultaat** "
         "is wat dat in euro oplevert, dus inclusief de wisselkoers. Die twee "
         "verschillen zodra de dollar beweegt."
+        + ("  \n**Koers van** zegt van welke dag de koers is. Staat er een datum "
+           "in plaats van \"nu\", dan is dat de laatst vastgelegde slotkoers."
+           if verouderd else "")
     )
 
     fx_start = float(uitvoering["fx_rate"])

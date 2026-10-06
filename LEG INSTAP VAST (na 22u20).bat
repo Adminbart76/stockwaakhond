@@ -10,7 +10,11 @@ echo.
 echo   Dit legt vast tegen welke koers de 1.000 euro instapt.
 echo   Het gebeurt maar een keer en kan daarna niet meer wijzigen.
 echo.
-echo   Werkt pas na 22u20, als de Amerikaanse beurs dicht is.
+echo   Doe dit tussen 22u20 en 01u00 (onze tijd), dus op de avond
+echo   van de beursdag zelf. Na 22u20 is de Amerikaanse beurs
+echo   dicht; na 01u00 geeft Yahoo voor diezelfde dag een andere
+echo   wisselkoers terug, en dan weigert het programma.
+echo.
 echo   Is het nog te vroeg, dan zegt het programma dat gewoon
 echo   en is er niets gebeurd. Probeer dan later opnieuw.
 echo.

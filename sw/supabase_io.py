@@ -6,6 +6,12 @@ Twee sleutels, twee rollen:
 
 Wissen en wijzigen kan met geen van beide: dat is in de database zelf
 geblokkeerd. Deze module biedt er dan ook geen functie voor.
+
+Er is nog een derde manier naar binnen, met opzet heel smal: een
+databasefunctie die alleen dagkoersen en wisselkoersen mag toevoegen, en die
+om een eigen schrijfteken vraagt. Daarmee kan de dagelijkse taak op GitHub
+haar werk doen zonder dat de geheime sleutel daar ooit moet staan. Zie rpc()
+en sql/02_hardening.sql.
 """
 
 from __future__ import annotations
@@ -31,7 +37,7 @@ def lees_instellingen(pad: Optional[Path] = None) -> Dict[str, str]:
     """
     cfg = {}
     for sleutel in ("SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_KEY",
-                    "ADMIN_WACHTWOORD"):
+                    "SNAPSHOT_WRITE_TOKEN", "ADMIN_WACHTWOORD"):
         waarde = os.environ.get(sleutel)
         if waarde:
             cfg[sleutel] = waarde
@@ -148,6 +154,33 @@ class Supabase:
             return r.json()
         except ValueError:
             return []
+
+    # ------------------------------------------------------------- functies
+    def rpc(self, functie: str, argumenten: Dict[str, Any], timeout: int = 60) -> Any:
+        """Roept een databasefunctie aan.
+
+        Hiermee kan de dagelijkse taak koersen wegschrijven zonder de geheime
+        sleutel. De functie in de database bepaalt zelf wat er mag: alleen
+        koersen en wisselkoersen toevoegen, nooit een signaal of een uitvoering
+        aanraken. De leessleutel mag dit dus aanroepen - de grens zit in de
+        database, niet in de sleutel.
+        """
+        r = requests.post(
+            f"{self.url}/rest/v1/rpc/{functie}",
+            headers=self._headers(),
+            data=json.dumps(argumenten),
+            timeout=timeout,
+        )
+        if r.status_code not in (200, 201, 204):
+            raise RuntimeError(
+                f"Aanroepen van {functie} mislukte: HTTP {r.status_code} {r.text[:600]}"
+            )
+        if not r.content:
+            return None
+        try:
+            return r.json()
+        except ValueError:
+            return None
 
     def tabellen_bestaan(self, namen: List[str]) -> Dict[str, bool]:
         resultaat = {}

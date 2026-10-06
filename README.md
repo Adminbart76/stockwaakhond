@@ -49,9 +49,17 @@ Dezelfde gegevens staan in Supabase, waar zeven tabellen met een trigger
 beschermd zijn tegen wijzigen en wissen — ook met de geheime sleutel, ook vanuit
 de SQL-editor.
 
-Het signaal gebruikt altijd de laatste afgesloten slotkoers. De portefeuille
-stapt pas in op de eerstvolgende beursdag, zodat er nooit gehandeld wordt tegen
-een koers die bij het kiezen al bekend was.
+Het signaal gebruikt altijd de laatste afgesloten slotkoers: een beursdag die
+nog loopt kan geen signaaldag worden, ook niet als Yahoo er al een voorlopige
+rij voor levert. De portefeuille stapt pas in op de eerstvolgende beursdag,
+zodat er nooit gehandeld wordt tegen een koers die bij het kiezen al bekend was.
+
+De database bewaakt dat zelf ook. `sql/02_hardening.sql` laat alleen een echt
+volgend schakeltje in de keten toe: het juiste volgnummer, het controlegetal van
+de voorganger, minstens 28 dagen later, en een formule die werkelijk bij de
+strategie hoort. Een vervalst signaal met een kloppend controlegetal komt er dus
+niet meer in - en dat is belangrijker dan het achteraf opmerken, want weghalen
+kan niet.
 
 ## De virtuele portefeuille
 
@@ -61,9 +69,13 @@ Aankoopkoers, aantal aandelen en wisselkoers worden één keer vastgelegd en
 daarna nooit herberekend. Zo verschuift het rendement niet maanden later,
 wanneer Yahoo oude koersen verlaagt na een dividenduitkering.
 
-De benchmark SPY krijgt exact dezelfde inleg, kosten, wisselkoers en startdag.
-Alles wordt in dollar opgeteld en pas op het einde één keer omgezet naar euro,
-zodat het wisselkoerseffect niet dubbel kan tellen.
+De benchmark SPY krijgt exact dezelfde inleg, kosten, wisselkoers, startdag en
+dividendbehandeling. Alles wordt in dollar opgeteld en pas op het einde één keer
+omgezet naar euro, zodat het wisselkoerseffect niet dubbel kan tellen.
+
+Ontbreekt er een koers, dan toont het dashboard geen bedrag. Liever geen cijfer
+dan een cijfer dat eruitziet als de waarde van nu terwijl het op een oude koers
+rust.
 
 ## Gebruiken
 
@@ -79,7 +91,7 @@ python -m streamlit run streamlit_app.py
 Controleren of alles nog klopt:
 
 ```
-python -m pytest                     # 41 wachters op formule, logboek en rekenwerk
+python -m pytest                     # 89 wachters op formule, logboek en rekenwerk
 python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
 python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
 ```
@@ -91,7 +103,7 @@ python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bes
 | `bewijs/` | het bewijsmateriaal. Nooit wijzigen. Begin bij `LEESMIJ.txt`. |
 | `forward_log/` | het werkende logboek |
 | `sw/` | de rekenkern, zonder schermcode |
-| `sql/` | wat er in Supabase draait |
+| `sql/` | wat er in Supabase draait (`01_schema.sql`, daarna `02_hardening.sql`) |
 | `scripts/` | onderhoud en controle |
 | `tests/` | de wachters |
 

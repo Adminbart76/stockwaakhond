@@ -8,6 +8,23 @@ name: Dagelijkse koersen vastleggen
 #
 # Dit houdt meteen het gratis Supabase-project wakker. Dat pauzeert na zeven
 # dagen zonder activiteit, en dan is het dashboard tijdelijk onbruikbaar.
+#
+# Geen geheime sleutel hier
+# =========================
+# Deze taak schrijft met de leessleutel plus een eigen schrijfteken
+# (SNAPSHOT_WRITE_TOKEN). Dat teken geeft recht op precies een ding: een
+# dagkoers toevoegen van een aandeel dat in de portefeuille zit. De grens zit
+# in de database zelf (sql/02_hardening.sql), niet in de goede bedoelingen van
+# dit bestand.
+#
+# De instap van de portefeuille staat hier met opzet NIET meer bij. Die
+# schrijft in `executions`, en dat is bewijsmateriaal: niets wat vanuit GitHub
+# gebeurt mag daar ooit bij kunnen. De instap doe je lokaal, met het bestand
+# "LEG INSTAP VAST (na 22u20).bat".
+#
+# Er staat geen `|| true` meer achter een stap. Mislukt er iets, dan hoort die
+# taak rood te worden. De scripts zelf geven exitcode 0 voor de normale
+# situaties waarin er niets te doen is (weekend, feestdag, beurs nog open).
 
 on:
   schedule:
@@ -36,11 +53,6 @@ jobs:
       - name: Koersen van vandaag vastleggen
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SNAPSHOT_WRITE_TOKEN: ${{ secrets.SNAPSHOT_WRITE_TOKEN }}
         run: python scripts/dagelijkse_snapshot.py
-
-      - name: Instap vastleggen als dat nog niet gebeurd is
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python scripts/leg_instap_vast.py || true

@@ -10,18 +10,28 @@ De herrekende koersen veranderen met terugwerkende kracht: zodra een bedrijf
 dividend uitkeert, worden alle oudere koersen van dat aandeel verlaagd. Handig
 om totaalrendement te meten, onbruikbaar om te tonen wat je portefeuille waard
 is. Daarom halen we ze allebei op en leggen we ze allebei vast.
+
+Wanneer een koers definitief is, staat niet hier maar in sw/beurskalender.py.
+Dat is pure klokrekenkunde zonder internet, en daardoor te testen zonder dat
+er ook maar iets opgehaald wordt. De namen blijven hieronder beschikbaar, zodat
+de scripts gewoon `pr.beurs_is_gesloten_voor(...)` kunnen blijven gebruiken.
 """
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
 
-BEURS = ZoneInfo("America/New_York")
+from .beurskalender import (  # noqa: F401  (hier beschikbaar voor de scripts)
+    BEURS,
+    beurs_is_gesloten_voor,
+    laatste_voltooide_handelsdag,
+    slotmoment,
+    wisselkoers_is_definitief,
+)
+
 FX_SYMBOOL = "EURUSD=X"
 FX_BRON = "Yahoo Finance EURUSD=X dagslotkoers"
 
@@ -81,38 +91,6 @@ def haal_wisselkoers(start: str, eind: Optional[str] = None) -> pd.Series:
 def eerste_handelsdag_na(index: pd.DatetimeIndex, datum: str) -> Optional[pd.Timestamp]:
     later = index[index > pd.Timestamp(datum)]
     return pd.Timestamp(later[0]) if len(later) else None
-
-
-def beurs_is_gesloten_voor(datum: pd.Timestamp, marge_minuten: int = 20) -> Tuple[bool, str]:
-    """Is de Amerikaanse beurs voor die dag definitief gesloten?
-
-    Zolang de beurs open is, geeft Yahoo een voorlopige koers die later die dag
-    nog verandert. Een instapkoers die we vastleggen mag nooit een voorlopige
-    koers zijn: die wordt immers nooit meer herzien.
-
-    De marge van twintig minuten dekt de slotveiling en de vertraging waarmee
-    de gegevens binnenkomen.
-    """
-    nu = datetime.now(timezone.utc).astimezone(BEURS)
-    slot = datetime(
-        year=datum.year, month=datum.month, day=datum.day,
-        hour=16, minute=0, tzinfo=BEURS,
-    )
-    verschil = (nu - slot).total_seconds() / 60.0
-
-    if verschil < marge_minuten:
-        if verschil < 0:
-            return False, (
-                f"De beurs sluit pas om 16:00 in New York, dat is over "
-                f"{int(-verschil)} minuten. Nu is het daar {nu.strftime('%H:%M')}."
-            )
-        return False, (
-            f"De beurs is net gesloten ({int(verschil)} minuten geleden). "
-            f"Wacht tot {marge_minuten} minuten na de slotbel, zodat de "
-            f"slotkoers definitief is."
-        )
-
-    return True, f"De beurs is gesloten. In New York is het nu {nu.strftime('%H:%M')}."
 
 
 def koersen_op(frame: pd.DataFrame, datum: pd.Timestamp) -> Dict[str, float]:

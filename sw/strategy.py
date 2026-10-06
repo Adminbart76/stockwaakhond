@@ -16,6 +16,15 @@ je mag de lat niet verleggen nadat je de sprong gezien hebt.
 
 De code hieronder is letterlijk overgenomen uit app.py zoals die draaide bij
 het eerste officiele signaal op 6 oktober 2026.
+
+Wat er op 7 oktober 2026 wel is toegevoegd
+==========================================
+De scoreformule zelf is onaangeroerd: dezelfde gewichten, dezelfde
+terugkijkperiodes, dezelfde STRATEGY_SPEC en dus dezelfde strategiehash.
+Wat erbij kwam is een wachter voor de signaaldatum: een beursdag die nog
+loopt, mag geen signaaldag worden. Die wachter kan nooit een andere uitkomst
+geven op data waarin alleen voltooide beursdagen staan - hij weigert een dag
+die er nooit in had mogen zitten. Zie build_score_table().
 """
 
 from __future__ import annotations
@@ -23,10 +32,13 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from typing import List, Tuple
+from datetime import datetime
+from typing import List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
+
+from .beurskalender import laatste_voltooide_handelsdag
 
 TRADING_DAYS = 252
 
@@ -102,16 +114,36 @@ def build_score_table(
     prices: pd.DataFrame,
     universe: List[str],
     benchmark_ticker: str = "SPY",
+    nu: Optional[datetime] = None,
 ) -> Tuple[pd.DataFrame, pd.Timestamp, float]:
     """Berekent de score van elk aandeel op de laatste voltooide koersdag.
 
     Geeft terug: de gesorteerde scoretabel, de signaaldatum en het
     dekkingspercentage. Letterlijk de berekening van het eerste signaal.
+
+    De signaaldatum is de laatste beursdag die echt voorbij is, nooit een dag
+    die nog loopt. Yahoo levert tijdens de handelsdag al een rij voor vandaag,
+    met een koers die dezelfde dag nog verandert. Zou daarop een signaal
+    vastgelegd worden, dan zou de keuze achteraf op andere cijfers blijken te
+    rusten dan wat er in het logboek staat - en dan bewijst het logboek niets.
+
+    `nu` is er alleen voor de tests: die kunnen zo een moment meegeven in
+    plaats van af te hangen van het uur waarop ze draaien.
     """
     if benchmark_ticker not in prices.columns:
         raise ValueError("SPY ontbreekt in de koersdata.")
 
     benchmark = prices[benchmark_ticker].dropna()
+
+    laatste_voltooid = laatste_voltooide_handelsdag(benchmark.index, nu=nu)
+    if laatste_voltooid is None:
+        raise ValueError(
+            "Geen enkele voltooide beursdag in de koersdata. Een signaal mag "
+            "niet op een lopende beursdag berekend worden: wacht tot twintig "
+            "minuten na de slotbel in New York."
+        )
+    benchmark = benchmark.loc[:laatste_voltooid]
+
     if len(benchmark) < 252:
         raise ValueError("Onvoldoende SPY-historiek.")
 

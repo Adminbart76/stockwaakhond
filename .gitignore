@@ -24,3 +24,6 @@ desktop.ini
 *.bak
 *.tmp
 STREAMLIT_SECRETS_PLAKKEN.txt
+
+# Uitdraai voor een externe audit
+*-voor-audit.zip

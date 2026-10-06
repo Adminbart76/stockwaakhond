@@ -17,6 +17,15 @@ Volgorde:
   6. vastleggen: eerst lokaal, dan in de database
   7. terugcontroleren
 
+Afloop:
+    exitcode 0 - vastgelegd, of niets te doen (al gebeurd, beurs nog open,
+                 nog geen beursdag na het signaal)
+    exitcode 1 - er is iets mis en iemand moet ernaar kijken
+
+Dat onderscheid doet ertoe. "Dit is al gebeurd" is geen fout maar de normale
+toestand op elke dag behalve een: zou dat als fout gelden, dan moet elke
+automatische taak de uitkomst negeren, en dan valt een echte fout ook weg.
+
 Gebruik:
     python scripts/leg_instap_vast.py --toon     (alleen tonen, niets vastleggen)
     python scripts/leg_instap_vast.py            (echt vastleggen)
@@ -34,6 +43,7 @@ import pandas as pd
 PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
+from sw import beurskalender as bk                # noqa: E402
 from sw import ledger as led                      # noqa: E402
 from sw import portfolio as pf                    # noqa: E402
 from sw import prices as pr                       # noqa: E402
@@ -52,6 +62,14 @@ def stop(bericht: str) -> None:
     print("Er is niets vastgelegd.")
     print("=" * 74)
     sys.exit(1)
+
+
+def klaar(bericht: str) -> None:
+    """Niets te doen. Dat is een normale uitkomst, geen fout."""
+    print("\n" + "=" * 74)
+    print("NIETS TE DOEN: " + bericht)
+    print("=" * 74)
+    sys.exit(0)
 
 
 def kop(tekst: str) -> None:
@@ -82,7 +100,10 @@ bestaande = []
 if UITVOERINGEN.exists():
     bestaande = [json.loads(l) for l in UITVOERINGEN.read_text(encoding="utf-8").splitlines() if l.strip()]
 if any(u["entry_hash"] == signaal["entry_hash"] for u in bestaande):
-    stop("voor dit signaal is de instap al vastgelegd. Dat gebeurt maar een keer.")
+    klaar(
+        "voor dit signaal is de instap al vastgelegd, en dat gebeurt maar een keer.\n"
+        "De instapkoersen van die dag staan dus al vast en veranderen niet meer."
+    )
 
 
 # ------------------------------------------------------- 2. uitvoeringsdag
@@ -92,7 +113,7 @@ echt, herrekend = pr.haal_koersen(tickers + ["SPY"], start=signaal["signal_marke
 uitvoeringsdag = pr.eerste_handelsdag_na(echt.index, signaal["signal_market_date"])
 
 if uitvoeringsdag is None:
-    stop(
+    klaar(
         "er is nog geen beursdag geweest na de signaaldatum.\n"
         "De portefeuille stapt in tegen de slotkoers van de eerste beursdag na\n"
         "het signaal. Probeer opnieuw na de volgende slotbel."
@@ -103,7 +124,7 @@ print(f"   eerste beursdag na het signaal: {uitvoeringsdag.date()}")
 dicht, uitleg = pr.beurs_is_gesloten_voor(uitvoeringsdag)
 print(f"   {uitleg}")
 if not dicht:
-    stop(
+    klaar(
         "de slotkoers van die dag staat nog niet vast.\n"
         "Zolang er gehandeld wordt geeft Yahoo een voorlopige koers die later\n"
         "nog verandert. Een instapkoers die voor altijd vastligt, mag geen\n"
@@ -120,10 +141,55 @@ if ontbreekt:
     stop("geen slotkoers gevonden voor: " + ", ".join(ontbreekt))
 
 fx_reeks = pr.haal_wisselkoers(start=signaal["signal_market_date"])
+fx_gelezen_op = datetime.now(timezone.utc)
 if uitvoeringsdag not in fx_reeks.index:
     stop(f"geen wisselkoers gevonden voor {uitvoeringsdag.date()}.")
+
+# De wisselkoers mag alleen op de dag zelf vastgelegd worden, na de slotbel in
+# New York en voor de valutadag van Yahoo omslaat. Buiten dat venster geeft
+# Yahoo voor dezelfde datum een ander getal terug: gemeten op 6 oktober 2026
+# week dat 0,3 procent af. Zonder deze controle zou een uitvoering een
+# voorlopige of een verschoven dagwaarde als dagslotkoers kunnen benoemen,
+# en dat getal ligt daarna voor altijd vast.
+fx_mag, fx_stand, fx_uitleg = pr.wisselkoers_is_definitief(
+    uitvoeringsdag, nu=fx_gelezen_op)
+vanaf_hier, tot_hier = bk.venster_in_het_hier(uitvoeringsdag)
+if not fx_mag:
+    if fx_stand == "te_laat":
+        stop(
+            "de wisselkoers van die dag is niet meer betrouwbaar op te halen.\n"
+            + fx_uitleg + "\n"
+            f"Vastleggen kan op de dag zelf tussen {vanaf_hier} en {tot_hier} uur\n"
+            "bij ons. Is dat venster voorbij, dan hoort hier een mens naar te\n"
+            "kijken: de koers van die dag moet dan uit een andere bron komen\n"
+            "en met de hand bevestigd worden."
+        )
+    klaar(
+        "de wisselkoers van die dag staat nog niet vast.\n" + fx_uitleg + "\n"
+        f"Probeer opnieuw tussen {vanaf_hier} en {tot_hier} uur bij ons."
+    )
+
+# De laatste rij van de reeks hoort de dag zelf te zijn. Staat er al een
+# latere dag in, dan loopt de valutadag van Yahoo al verder dan wij denken.
+if pd.Timestamp(fx_reeks.index[-1]).normalize() != uitvoeringsdag.normalize():
+    stop(
+        f"de wisselkoersreeks loopt tot {pd.Timestamp(fx_reeks.index[-1]).date()} "
+        f"en niet tot {uitvoeringsdag.date()}.\n"
+        "De dagwaarde van die dag is dan niet meer de koers die bij de\n"
+        "slotkoersen van die dag hoort."
+    )
+
 fx = float(fx_reeks.loc[uitvoeringsdag])
 
+# fx_asof is het moment waarop deze koers GELEZEN is, en dat is met opzet.
+# De dagbalk van EURUSD=X klikt nooit vast op een slotkoers: hij volgt de
+# koers van dit moment zolang de valutadag loopt. Een verzonnen "slotmoment"
+# zou dus een getal benoemen dat op dat tijdstip niet gold. Wat hier staat kan
+# een latere lezer wel narekenen, en de controle hierboven garandeert dat dat
+# moment binnen het venster van deze handelsdag ligt.
+fx_asof = fx_gelezen_op.isoformat()
+
+print(f"   {fx_uitleg}")
 print(f"   slotkoersen van {uitvoeringsdag.date()} (echte koers, niet herrekend):")
 for t in tickers:
     print(f"      {t:<6} {koersen[t]:>10.4f} USD")
@@ -142,7 +208,7 @@ instap = pf.bereken_instap(
     fx_eurusd=fx,
     spy_koers_usd=koersen["SPY"],
     fx_source=pr.FX_BRON,
-    fx_asof=datetime.now(timezone.utc).isoformat(),
+    fx_asof=fx_asof,
 )
 
 print(f"   startkapitaal        EUR {instap['start_capital_eur']:>10.2f}")

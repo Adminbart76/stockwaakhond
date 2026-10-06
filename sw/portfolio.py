@@ -29,9 +29,12 @@ Drie keuzes die hier gemaakt zijn
    kan echt bij brokers als Trading 212 of Revolut, niet bij DEGIRO of Bolero.
 
 3. DE BENCHMARK KRIJGT EXACT DEZELFDE BEHANDELING.
-   Dezelfde 1.000 euro, dezelfde kosten, dezelfde wisselkoers, dezelfde dag.
-   Anders meet je het verschil tussen twee rekenmethodes in plaats van tussen
-   twee beleggingen.
+   Dezelfde 1.000 euro, dezelfde kosten, dezelfde wisselkoers, dezelfde dag -
+   en ook hetzelfde dividend. SPY keert vier keer per jaar uit; zou alleen
+   StockWaakhond zijn dividend meegeteld krijgen, dan zou de strategie elk jaar
+   ongeveer een procent voorsprong krijgen die ze niet verdiend heeft. Daarom
+   gaat dividend bij allebei via dezelfde functie en dezelfde fiscale
+   conventie. Zie dividend_reeks().
 
 Over de wisselkoers
 ===================
@@ -135,6 +138,23 @@ def bereken_instap(
 
 
 # ----------------------------------------------------------------- waarderen
+class KoersOntbreekt(ValueError):
+    """Er is geen bruikbare koers, dus er wordt geen totaal berekend.
+
+    Dit is met opzet een harde fout en geen stille terugval. Vroeger werd bij
+    een ontbrekende koers de aankoopkoers aangehouden; dan toont het scherm een
+    bedrag dat eruitziet als "nu waard" terwijl het dat niet is, en dat is
+    erger dan geen bedrag. Wie dit opvangt, hoort te vertellen dat de waarde
+    onbekend is - niet een getal te verzinnen.
+    """
+
+    def __init__(self, ontbreekt: List[str]):
+        self.ontbreekt = list(ontbreekt)
+        super().__init__(
+            "Geen bruikbare koers voor: " + ", ".join(self.ontbreekt)
+        )
+
+
 @dataclass
 class Waardering:
     """Wat de portefeuille op een bepaald moment waard is."""
@@ -147,6 +167,7 @@ class Waardering:
     resultaat_eur: float
     resultaat_pct: float
     spy_waarde_eur: float
+    spy_dividend_eur: float
     spy_resultaat_eur: float
     spy_resultaat_pct: float
     voorsprong_pct: float
@@ -159,13 +180,28 @@ def waardeer(
     datum: str,
     spy_koers_usd: Optional[float] = None,
     dividend_eur: float = 0.0,
+    spy_dividend_eur: float = 0.0,
 ) -> Waardering:
     """Waardeert de portefeuille tegen de opgegeven koersen.
 
     Alles wordt in dollar opgeteld en pas op het einde een keer omgezet.
+
+    Ontbreekt er een koers, dan komt er geen getal maar een KoersOntbreekt.
+    Dividend telt bij beide kanten mee: dividend_eur bij de portefeuille,
+    spy_dividend_eur bij de benchmark. Beide horen met dezelfde conventie
+    berekend te zijn - gebruik daarvoor dividend_reeks().
     """
     if fx_eurusd <= 0:
         raise ValueError("De wisselkoers moet groter dan nul zijn.")
+
+    ontbreekt = [
+        p["ticker"] for p in instap["positions"]
+        if not koersen_usd.get(p["ticker"]) or koersen_usd[p["ticker"]] <= 0
+    ]
+    if not (spy_koers_usd and spy_koers_usd > 0):
+        ontbreekt.append(instap["benchmark"]["ticker"])
+    if ontbreekt:
+        raise KoersOntbreekt(ontbreekt)
 
     inleg = float(instap["start_capital_eur"])
     posities = []
@@ -173,9 +209,7 @@ def waardeer(
 
     for p in instap["positions"]:
         t = p["ticker"]
-        koers_nu = koersen_usd.get(t)
-        if koers_nu is None or koers_nu <= 0:
-            koers_nu = p["buy_price_usd"]  # geen verse koers: houd de aankoopkoers aan
+        koers_nu = koersen_usd[t]
 
         waarde_usd = p["shares"] * float(koers_nu)
         totaal_usd += waarde_usd
@@ -201,8 +235,7 @@ def waardeer(
         p["aandeel_pct"] = round(100.0 * p["waarde_eur"] / totaal_eur, 2) if totaal_eur else 0.0
 
     bm = instap["benchmark"]
-    spy_koers = spy_koers_usd if (spy_koers_usd and spy_koers_usd > 0) else bm["buy_price_usd"]
-    spy_eur = (bm["shares"] * float(spy_koers)) / fx_eurusd
+    spy_eur = (bm["shares"] * float(spy_koers_usd)) / fx_eurusd + spy_dividend_eur
 
     resultaat = totaal_eur - inleg
     spy_resultaat = spy_eur - inleg
@@ -217,6 +250,7 @@ def waardeer(
         resultaat_eur=round(resultaat, 2),
         resultaat_pct=round(resultaat / inleg * 100, 4),
         spy_waarde_eur=round(spy_eur, 2),
+        spy_dividend_eur=round(spy_dividend_eur, 2),
         spy_resultaat_eur=round(spy_resultaat, 2),
         spy_resultaat_pct=round(spy_resultaat / inleg * 100, 4),
         voorsprong_pct=round((resultaat - spy_resultaat) / inleg * 100, 4),
@@ -242,17 +276,78 @@ def splits_resultaat(rendement_usd: float, fx_start: float, fx_nu: float) -> Dic
     }
 
 
+# ------------------------------------------------------------------- dividend
+def dividend_reeks(
+    dividenden: List[dict],
+    aandelen: Dict[str, float],
+    fx: pd.Series,
+    netto: bool = True,
+) -> pd.Series:
+    """Zet uitgekeerde dividenden om in euro per dag, voor de aandelen die je hebt.
+
+    Dezelfde functie wordt gebruikt voor de vijf aandelen van StockWaakhond en
+    voor de SPY-aandelen van de benchmark. Dat is geen gemak maar een eis: zodra
+    de ene kant zijn dividend anders berekend krijgt dan de andere, meet de
+    grafiek niet meer het verschil tussen twee beleggingen.
+
+    dividenden: rijen zoals in de tabel `dividends`, met ticker, ex_date en
+                het bedrag per aandeel in dollar (bruto en netto)
+    aandelen:   hoeveel aandelen je van elk ticker hebt
+    fx:         wisselkoers euro-dollar per datum
+    netto:      netto nemen (wat een Belgische belegger overhoudt) of bruto
+
+    Ontbreekt het nettobedrag terwijl je netto vraagt, dan is dat een fout en
+    geen reden om er zelf een percentage bij te verzinnen: de fiscale
+    conventie is een beslissing, niet een aanname.
+    """
+    bedragen: Dict[pd.Timestamp, float] = {}
+
+    for rij in dividenden:
+        ticker = rij.get("ticker")
+        if ticker not in aandelen:
+            continue
+
+        veld = "net_per_share_usd" if netto else "gross_per_share_usd"
+        per_aandeel = rij.get(veld)
+        if per_aandeel is None:
+            raise ValueError(
+                f"Voor {ticker} op {rij.get('ex_date')} staat er geen "
+                f"{'netto' if netto else 'bruto'}bedrag in de dividendtabel. "
+                "Vul dat eerst in; er wordt geen percentage verzonnen."
+            )
+
+        datum = pd.Timestamp(rij["ex_date"]).normalize()
+        koers = fx.asof(datum) if len(fx) else float("nan")
+        if koers != koers or koers <= 0:
+            raise ValueError(
+                f"Geen wisselkoers bekend op {datum.date()}, dus het dividend "
+                f"van {ticker} kan niet in euro omgerekend worden."
+            )
+
+        bedragen[datum] = bedragen.get(datum, 0.0) + (
+            float(aandelen[ticker]) * float(per_aandeel) / float(koers)
+        )
+
+    if not bedragen:
+        return pd.Series(dtype=float)
+    return pd.Series(bedragen).sort_index()
+
+
 # ------------------------------------------------------------------- verloop
 def bouw_verloop(
     instap: dict,
     koersen: pd.DataFrame,
     fx: pd.Series,
     dividend_per_dag: Optional[pd.Series] = None,
+    spy_dividend_per_dag: Optional[pd.Series] = None,
 ) -> pd.DataFrame:
     """Bouwt het dagelijkse verloop in euro, vanaf de instapdag.
 
     koersen: kolommen per ticker (echte slotkoersen), index is de datum
     fx:      wisselkoers euro-dollar per datum
+
+    Dividend telt bij beide kanten mee en wordt bij beide op dezelfde dag
+    opgeteld als geld, nooit via herrekende koersen.
     """
     start = pd.Timestamp(instap["execution_date"])
     index = koersen.index[koersen.index >= start]
@@ -265,6 +360,7 @@ def bouw_verloop(
 
     rijen = []
     dividend_opgeteld = 0.0
+    spy_dividend_opgeteld = 0.0
     for dt in index:
         koers_dag = fx.reindex([dt]).ffill().iloc[0] if dt in fx.index else fx.asof(dt)
         if not koers_dag or koers_dag != koers_dag or koers_dag <= 0:
@@ -272,6 +368,8 @@ def bouw_verloop(
 
         if dividend_per_dag is not None and dt in dividend_per_dag.index:
             dividend_opgeteld += float(dividend_per_dag.loc[dt])
+        if spy_dividend_per_dag is not None and dt in spy_dividend_per_dag.index:
+            spy_dividend_opgeteld += float(spy_dividend_per_dag.loc[dt])
 
         totaal_usd = 0.0
         compleet = True
@@ -295,8 +393,10 @@ def bouw_verloop(
             "datum": dt,
             "fx_eurusd": float(koers_dag),
             "portefeuille_eur": totaal_usd / float(koers_dag) + dividend_opgeteld,
-            "spy_eur": (bm["shares"] * float(spy_koers)) / float(koers_dag),
+            "spy_eur": (bm["shares"] * float(spy_koers)) / float(koers_dag)
+                       + spy_dividend_opgeteld,
             "dividend_eur": dividend_opgeteld,
+            "spy_dividend_eur": spy_dividend_opgeteld,
         })
 
     df = pd.DataFrame(rijen)

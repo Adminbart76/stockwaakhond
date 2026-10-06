@@ -8,11 +8,11 @@ stappen die hij werkelijk zelf moet doen.
 | | |
 |---|---|
 | Werkmap | `I:\Mijn Drive\02 – Eigen projecten\stockwaakhond` |
+| Starten | typ `stock` in de terminal (`C:\Users\bartr\.local\bin\stock.cmd`) |
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 41, groen op 6 oktober 2026 (`python -m pytest`) |
-| Oorspronkelijke map | `C:\Users\bartr\Downloads\StockWaakhond_V7_forward_test\` — onaangeroerd gelaten |
+| Tests | 89, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -27,6 +27,23 @@ schrijfsleutel staat daar met opzet niet: de app leest alleen.
 De sleutels staan in `SLEUTELS_INVULLEN.txt`, buiten Git gehouden door
 `.gitignore`. Het beheerderswachtwoord is op 6 oktober 2026 ingevuld en werkt
 op het online dashboard.
+
+### Let op: er staat een oude kopie op C:
+
+`C:\Users\bartr\Downloads\StockWaakhond_V7_forward_test\` is de map waarin V7
+ooit begon. Daar staat alleen nog de oorspronkelijke `app.py` met een logboek
+van één regel: geen `sw/`, geen `sql/`, geen tests, geen workflows.
+
+Die map is **geen werkmap meer** en wordt niet bijgewerkt. Op 6 oktober 2026
+verwees een audit van ChatGPT naar bestanden in die map, waarna een sessie bijna
+in de verkeerde kopie begon te werken. Begin daarom altijd met `stock`, of
+controleer dat je in `I:\Mijn Drive\...` zit voor je iets wijzigt. Twee kopieën
+met verschillende logica is het laatste wat een hash-keten kan verdragen.
+
+Eén ding uit die map is wél in gebruik en mag dus niet weg: de Python-omgeving
+`...\StockWaakhond_V7\.venv` (Python 3.14.3 met de gepinde versies uit
+`requirements.txt`). Beide `.bat`-bestanden starten die. De Python die standaard
+in de terminal staat, heeft `yfinance` niet.
 
 ## De forward-test is heilig
 
@@ -84,6 +101,21 @@ Genomen op 6 oktober 2026, met de reden erbij:
    gedeeld IP-adres wordt door Yahoo geblokkeerd en duurt te lang voor een
    webpagina.
 
+Daar kwamen op 7 oktober 2026 deze bij, bij de hardening:
+
+9. **Geen koers is geen bedrag.** Liever niets tonen dan een getal dat eruitziet
+   als de waarde van nu terwijl het op de aankoopkoers rust. Een verkeerd cijfer
+   dat geloofwaardig oogt, is erger dan een leeg vak.
+10. **Dividend gaat bij beide kanten door dezelfde functie.** Zou alleen
+    StockWaakhond zijn dividend meegeteld krijgen, dan wint de strategie elk
+    jaar ongeveer een procent dat ze niet verdiend heeft.
+11. **`fx_asof` is het moment van lezen, niet een verzonnen slotmoment**, plus
+    een venster waarbinnen dat lezen moet gebeuren. Reden: de dagbalk van
+    `EURUSD=X` klikt nooit vast. Zie "De bevinding die punt 5 veranderde".
+12. **Uit GitHub kan nooit in `signals` of `executions` geschreven worden.** De
+    dagelijkse taak heeft een schrijfteken dat alleen koersen mag toevoegen; de
+    instap blijft een handeling van Bart zelf op zijn eigen computer.
+
 ## Wat bewust open blijft
 
 **De kostenconventie bij een wissel — beslissen vóór 3 november 2026.**
@@ -108,9 +140,16 @@ rond november 2026 verwacht, HPE en SPY rond december.
 bestaan: het heet er letterlijk "deploy a public app", afschermen zit bij de
 betaalde Snowflake-variant. Zie het open punt hieronder.
 
-**Python-versies.** Lokaal draait 3.14.3, het dashboard en de GitHub-workflows
-draaien op 3.12. De gepinde versies installeren en slagen op allebei; getest
-door de workflow op 6 oktober 2026.
+**Python-versies.** Lokaal draait 3.14.3 (de `.venv`, zie boven), het dashboard
+en de GitHub-workflows draaien op 3.12. De gepinde versies installeren en slagen
+op allebei; getest door de workflow op 6 oktober 2026. De 89 tests draaien ook
+groen op de losse Python 3.14.4 die standaard in de terminal staat.
+
+**Dividend is gebouwd maar nog nergens aangesloten.** De rekenkern kan het voor
+beide kanten, maar zolang de fiscale percentages niet vastliggen, komt er niets
+uit de tabel `dividends` op het scherm. Dat is geen vergetelheid: zelf een
+bronheffing invullen zou een beslissing zijn die hier niet thuishoort. Beide
+kanten missen nu evenveel, dus de vergelijking blijft eerlijk.
 
 ## Hoe het in elkaar zit
 
@@ -122,11 +161,16 @@ alleen bijschrijven   doet de maandscan     leest alleen
 
 - `sw/` is de rekenkern zonder schermcode: `strategy.py` (bevroren formule),
   `ledger.py` (lezen, controleren, bijschrijven — met opzet geen enkele functie
-  die iets wist), `portfolio.py`, `prices.py`, `supabase_io.py`.
+  die iets wist), `portfolio.py`, `prices.py`, `supabase_io.py`, en sinds
+  7 oktober 2026 `beurskalender.py`: alle klokregels op één plek, zonder
+  internet, met een `nu` die je in een test kunt meegeven.
 - `streamlit_app.py` is het dashboard. Het leest alleen.
-- `sql/01_schema.sql` is idempotent; opnieuw draaien is veilig.
+- `sql/01_schema.sql` en `sql/02_hardening.sql` zijn allebei idempotent;
+  opnieuw draaien is veilig en verandert geen bestaande rij.
 - `scripts/controleer_slot.py` valt de database aan met de geheime sleutel erbij.
-  Draai dat na elke wijziging aan het schema. Stand 6 oktober 2026: 23 van 23 goed.
+  Draai dat na elke wijziging aan het schema. Stand 6 oktober 2026: 23 van 23
+  goed; de aanvallen op de nieuwe ketenregels staan erin maar zijn nog niet
+  gedraaid, want de SQL is nog niet uitgevoerd.
 
 Zeven tabellen zijn onaantastbaar gemaakt met een trigger die update en delete
 weigert. Dat is de echte beveiliging: row level security wordt omzeild door de
@@ -151,14 +195,104 @@ bij het signaal op 203,21 en sloot de dag erna op 187,46, bijna acht procent
 lager. Was er ingestapt tegen de koers die bij het kiezen al bekend was, dan
 had de portefeuille vanaf dag één een winst getoond die niemand had kunnen maken.
 
+## De hardening van 7 oktober 2026
+
+Opgedragen door Bart op 6 oktober 2026 na een audit van ChatGPT, uitgevoerd op
+7 oktober 2026. Zeven punten, alle zeven gebouwd. De harde grens eromheen,
+letterlijk van Bart: wijzig nooit het bestaande ledger-record, de bestaande
+execution, de strategiehash, de formule of de historische bewijsbestanden. Dat
+is nagekomen: `forward_log/`, `bewijs/` en `app.py` zijn niet aangeraakt, en
+`sw/strategy.py` draagt nog exact dezelfde `STRATEGY_SPEC` en strategiehash.
+
+**1. Geen look-ahead meer bij een nieuw signaal.** De signaaldatum is voortaan
+de laatste beursdag die echt voorbij is. Een nog lopende dag - waarvan Yahoo al
+een voorlopige rij levert - kan geen signaaldag worden. De klokregels staan nu
+in `sw/beurskalender.py`, los van internet en dus testbaar met een meegegeven
+moment. `tests/test_signaaldatum.py` bewijst het met een dagrij die de Top-5 zou
+omgooien.
+
+**2. De keten wordt in de database zelf afgedwongen** (`sql/02_hardening.sql`):
+volgnummer precies een hoger, verwijzing naar het controlegetal van het huidige
+laatste signaal, minstens 28 dagen ertussen, formule én versie die werkelijk bij
+de strategie horen, `created_at_utc` die klopt met de gehashte tekst, en de
+keten-punt die onder slot gelezen wordt (`pg_advisory_xact_lock`) zodat twee
+gelijktijdige pogingen geen twee ketens kunnen maken. Bij `executions` worden nu
+ook `fx_source` en `fx_asof` nagerekend.
+
+**3. De geheime sleutel is uit GitHub.** De dagelijkse taak schrijft via een
+databasefunctie `leg_dagkoersen_vast()` die alleen koersen mag toevoegen, met
+een eigen schrijfteken (`SNAPSHOT_WRITE_TOKEN`) waarvan server-side alleen het
+controlegetal staat. De instapstap is uit de workflow gehaald: die schrijft in
+`executions`, en daar mag vanuit GitHub niets bij komen. De instap blijft lokaal
+met `LEG INSTAP VAST (na 22u20).bat`.
+
+**4. Dividend telt aan beide kanten.** `waardeer()` en `bouw_verloop()` nemen nu
+ook het dividend van de daadwerkelijk gehouden SPY-aandelen mee, en
+`dividend_reeks()` rekent beide kanten met exact dezelfde conventie om. De
+fiscale percentages liggen nog niet vast (zie hieronder), dus er is nog niets
+aan het dashboard gekoppeld; zolang er niets is, missen beide kanten evenveel.
+
+**5. De wisselkoers heeft een venster gekregen.** Zie de bevinding hieronder:
+dit is niet opgelost zoals de opdracht voorstelde, omdat de aanname niet bleek
+te kloppen.
+
+**6. Ontbreekt een koers, dan komt er geen bedrag.** `waardeer()` geeft een
+`KoersOntbreekt` in plaats van stilletjes de aankoopkoers aan te houden. Het
+dashboard neemt de rangorde: koers van nu, anders de laatst vastgelegde
+slotkoers mét de dag erbij en een duidelijke melding, en anders geen bedrag en
+dat gewoon zeggen.
+
+**7. De workflow verbergt geen fouten meer.** `|| true` is weg. De scripts
+geven exitcode 0 voor de normale situaties waarin er niets te doen is (weekend,
+feestdag, beurs nog open, instap al gebeurd) en exitcode 1 als er werkelijk iets
+mis is. `tests/test_werkwijze.py` bewaakt dat onderscheid.
+
+### De bevinding die punt 5 veranderde
+
+De opdracht ging ervan uit dat de dagslotkoers van `EURUSD=X` op een bepaald
+moment definitief wordt, en dat `fx_asof` dat moment hoort te zijn. Gemeten op
+6 oktober 2026 klopt die aanname niet:
+
+- zolang de valutadag loopt (Yahoo dateert die in de tijd van Londen), volgt de
+  dagbalk gewoon de koers van dit moment: om 22.54 bij ons stond er 1,126253,
+  twee uur later 1,126380;
+- is die dag voorbij, dan rapporteert Yahoo voor diezelfde datum een heel ander
+  getal. Voor 5 oktober 2026 stond er achteraf 1,125454, terwijl de koers aan
+  het eind van die dag 1,12246 was - 0,3 procent verschil.
+
+Er bestaat voor deze bron dus geen moment waarop de dagkoers vastklikt. Daarom
+is `fx_asof` nu het moment waarop de koers **gelezen** is, en dwingt de code af
+dat dat lezen binnen het enige venster gebeurt waarin die waarde bij die
+handelsdag hoort: na de slotbel in New York en voor middernacht in Londen. Bij
+ons is dat tussen 22.20 en 01.00. De database bewaakt hetzelfde grover (fx_asof
+tussen de slotbel en acht uur daarna); `tests/test_beurskalender.py` bewijst dat
+de twee elkaar niet tegenspreken.
+
+Een verzonnen "slotmoment" zou een getal benoemen dat op dat tijdstip niet gold.
+Wat er nu staat, kan een latere lezer narekenen.
+
+De bestaande uitvoering van 6 oktober 2026 blijft exact zoals ze is. Haar
+`fx_asof` (20:54 UTC, 54 minuten na de slotbel) valt binnen beide vensters.
+
 ## Wat nu open staat
 
-1. **De drie sleutels als secrets in GitHub zetten**, anders kunnen de
-   workflows niet bij Supabase. Dat is `gh secret set SUPABASE_URL` enzovoort;
-   die handeling werd op 6 oktober geweigerd omdat het om geheimen gaat en moet
-   met Barts toestemming opnieuw. Zonder dit draait de dagelijkse taak wel maar
-   schrijft hij niets weg, en moet de instap met de hand gebeuren.
-2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+1. **De verstevigingen staan in de code, maar nog niet in de database.**
+   `sql/02_hardening.sql` is geschreven en nagelezen, maar niet uitgevoerd: er
+   is vanuit hier geen manier om SQL in Supabase te draaien (de REST-koppeling
+   kan dat niet en het databasewachtwoord hoort hier niet te staan). Bart voert
+   het een keer uit in de SQL Editor, daarna de regel bij punt 6 van
+   `SLEUTELS_INVULLEN.txt` voor het schrijfteken, en daarna
+   `python scripts/controleer_slot.py`. Dat script controleert éérst of de
+   regels er werkelijk staan en weigert aan te vallen als dat niet zo is - een
+   vervalst signaal zou er dan immers echt in komen.
+
+2. **De drie secrets in GitHub zetten:** `SUPABASE_URL`, `SUPABASE_ANON_KEY` en
+   `SNAPSHOT_WRITE_TOKEN`. Niet meer `SUPABASE_SERVICE_KEY`; staat die er nog
+   van eerder, haal hem weg. Dit is een handeling met geheimen, dus Bart doet ze
+   zelf; de namen en waarden staan bij punt 6 van `SLEUTELS_INVULLEN.txt`.
+   Zonder dit draait de dagelijkse taak wel, maar schrijft hij niets weg.
+
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
