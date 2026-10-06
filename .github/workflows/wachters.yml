@@ -1,0 +1,60 @@
+name: Wachters
+
+# Draait bij elke wijziging. Slaat alarm zodra iemand de bevroren formule,
+# het logboek of de rekenkunde van de portefeuille aanraakt.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Pakketten installeren
+        run: pip install -r requirements.txt
+
+      - name: Wachters draaien
+        run: python -m pytest -v
+
+      - name: Controlegetallen nog eens los nakijken
+        run: |
+          python - <<'EOF'
+          import hashlib, json
+          from pathlib import Path
+
+          VERWACHT_STRATEGIE = "a399aecc207510c77450cd015f4f23e2b3639fc642eb9bcc29e95cbe2b84cc18"
+          VERWACHT_SIGNAAL  = "0426e47ccd6e0b4f7fcecd772ce21dc5778db862e359f5eb4d239f5ce8bd5d15"
+
+          regels = [json.loads(l) for l in
+                    Path("forward_log/ledger.jsonl").read_text(encoding="utf-8").splitlines()
+                    if l.strip()]
+
+          eerste = regels[0]
+          assert eerste["entry_hash"] == VERWACHT_SIGNAAL, "het eerste signaal is gewijzigd"
+          assert eerste["strategy_hash"] == VERWACHT_STRATEGIE, "de strategie is gewijzigd"
+
+          spec = json.dumps(eerste["formula_spec"], sort_keys=True, separators=(",", ":"))
+          assert hashlib.sha256(spec.encode()).hexdigest() == VERWACHT_STRATEGIE, \
+              "de opgeslagen formule past niet bij de opgeslagen hash"
+
+          payload = {k: v for k, v in eerste.items() if k != "entry_hash"}
+          tekst = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+          assert hashlib.sha256(tekst.encode()).hexdigest() == VERWACHT_SIGNAAL, \
+              "de inhoud van het eerste signaal is gewijzigd"
+
+          print("De bevroren forward-test is onaangeroerd.")
+          print("  strategie :", VERWACHT_STRATEGIE)
+          print("  signaal   :", VERWACHT_SIGNAAL)
+          EOF

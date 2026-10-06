@@ -1,0 +1,46 @@
+name: Dagelijkse koersen vastleggen
+
+# Draait elke beursdag na de slotbel in New York.
+#
+# 21:30 UTC werkt het hele jaar door: in de Amerikaanse zomertijd sluit de
+# beurs om 20:00 UTC, in de wintertijd om 21:00 UTC. Het script controleert
+# zelf of de beurs echt gesloten is en doet niets wanneer dat niet zo is.
+#
+# Dit houdt meteen het gratis Supabase-project wakker. Dat pauzeert na zeven
+# dagen zonder activiteit, en dan is het dashboard tijdelijk onbruikbaar.
+
+on:
+  schedule:
+    - cron: "30 21 * * 1-5"
+  workflow_dispatch:        # ook met de hand te starten vanuit GitHub
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Pakketten installeren
+        run: pip install -r requirements.txt
+
+      - name: Wachters draaien
+        run: python -m pytest
+
+      - name: Koersen van vandaag vastleggen
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/dagelijkse_snapshot.py
+
+      - name: Instap vastleggen als dat nog niet gebeurd is
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/leg_instap_vast.py || true
