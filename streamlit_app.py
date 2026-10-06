@@ -68,6 +68,16 @@ def eur(bedrag: float) -> str:
     return "€ " + _komma(f"{bedrag:,.2f}")
 
 
+def eur_verschil(bedrag: float) -> str:
+    """Een bedrag met het teken vooraan: -€ 1,34 of +€ 1,34.
+
+    Het teken moet vooraan staan, anders leest Streamlit het bedrag als
+    positief en zet het een groene pijl omhoog boven een verlies.
+    """
+    teken = "-" if bedrag < 0 else "+"
+    return teken + "€ " + _komma(f"{abs(bedrag):,.2f}")
+
+
 def dollar(bedrag: float) -> str:
     return "$ " + _komma(f"{bedrag:,.2f}")
 
@@ -254,21 +264,34 @@ else:
     k1.metric("Ingelegd", eur(waardering.inleg_eur),
               help="Het virtuele startbedrag. Er is nooit echt geld belegd.")
     k2.metric("Nu waard", eur(waardering.totaal_eur),
-              delta=f"{eur(waardering.resultaat_eur)}  ({pct(waardering.resultaat_pct)})")
+              delta=f"{eur_verschil(waardering.resultaat_eur)}  "
+                    f"({pct(waardering.resultaat_pct)})")
     k3.metric("Dezelfde €1.000 in SPY", eur(waardering.spy_waarde_eur),
-              delta=f"{eur(waardering.spy_resultaat_eur)}  ({pct(waardering.spy_resultaat_pct)})",
+              delta=f"{eur_verschil(waardering.spy_resultaat_eur)}  "
+                    f"({pct(waardering.spy_resultaat_pct)})",
               help="SPY is een fonds dat de 500 grootste Amerikaanse "
                    "beursbedrijven volgt. Het is de maatstaf: haalt de "
                    "strategie meer dan dit, dan was het kiezen de moeite waard.")
 
+    # Een verschil van enkele honderdsten van een procent is ruis, geen
+    # voorsprong. Dat zo noemen zou een leek een conclusie laten trekken die
+    # de cijfers niet dragen.
     voor = waardering.voorsprong_pct
-    st.markdown(
-        f"### {'Voorsprong' if voor >= 0 else 'Achterstand'} op SPY: {pct(voor)}\n"
-        f"StockWaakhond staat op {pct(waardering.resultaat_pct)}, SPY op "
-        f"{pct(waardering.spy_resultaat_pct)}. "
-        + ("De strategie doet het dus beter dan de markt."
-           if voor >= 0 else "De strategie doet het dus minder goed dan de markt.")
-    )
+    if abs(voor) < 0.10:
+        st.markdown(
+            f"### StockWaakhond en SPY gaan vrijwel gelijk op\n"
+            f"StockWaakhond staat op {pct(waardering.resultaat_pct)}, SPY op "
+            f"{pct(waardering.spy_resultaat_pct)}. Het verschil is {pct(voor)}, "
+            "en dat is te klein om iets te betekenen."
+        )
+    else:
+        st.markdown(
+            f"### {'Voorsprong' if voor > 0 else 'Achterstand'} op SPY: {pct(voor)}\n"
+            f"StockWaakhond staat op {pct(waardering.resultaat_pct)}, SPY op "
+            f"{pct(waardering.spy_resultaat_pct)}. "
+            + ("De strategie doet het dus beter dan de markt."
+               if voor > 0 else "De strategie doet het dus minder goed dan de markt.")
+        )
 
     if verse_koersen and tijdstip:
         gemeten = pd.Timestamp(tijdstip)
@@ -382,7 +405,7 @@ else:
         "Koers in dollar": pct(p["koersrendement_pct"]),
         "Ingelegd": eur(p["inzet_eur"]),
         "Nu waard": eur(p["waarde_eur"]),
-        "Resultaat": f"{eur(p['resultaat_eur'])}  ({pct(p['resultaat_pct'])})",
+        "Resultaat": f"{eur_verschil(p['resultaat_eur'])}  ({pct(p['resultaat_pct'])})",
         "Deel van de portefeuille": pct(p["aandeel_pct"], met_teken=False),
     } for p in waardering.posities]), hide_index=True, width="stretch")
 
