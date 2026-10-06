@@ -105,50 +105,55 @@ for a, b in paren:
 
 kop("3. Pakket maken")
 
-if DOEL.exists():
-    DOEL.unlink()
+# Het pakket wordt eerst op de gewone schijf gebouwd en nagekeken. De
+# projectmap staat op Google Drive, en daar is een bestand dat je net
+# geschreven hebt niet altijd meteen weer volledig te lezen. Pas als alles
+# klopt, gaat het naar zijn plaats.
+werkmap = Path(tempfile.mkdtemp(prefix="sw-audit-"))
+tijdelijk_pakket = werkmap / DOEL.name
 
-with zipfile.ZipFile(DOEL, "w", zipfile.ZIP_DEFLATED) as z:
+with zipfile.ZipFile(tijdelijk_pakket, "w", zipfile.ZIP_DEFLATED) as z:
     for naam in bestanden:
         pad = PROJECT / naam
         if pad.exists():
             z.write(pad, naam)
 
-print(f"   {DOEL.name}  ({DOEL.stat().st_size // 1024} kB, {len(bestanden)} bestanden)")
+print(f"   {DOEL.name}  ({tijdelijk_pakket.stat().st_size // 1024} kB, "
+      f"{len(bestanden)} bestanden)")
 
 # Dubbelcheck: er mag niets geheims in zitten, ook niet per ongeluk.
-with zipfile.ZipFile(DOEL) as z:
+with zipfile.ZipFile(tijdelijk_pakket) as z:
     namen = z.namelist()
 verdacht = [n for n in namen
             if "SLEUTEL" in n.upper() or "SECRET" in n.upper() or n.endswith(".env")]
 if verdacht:
     print("   GESTOPT: er zit iets in dat er niet in hoort: " + ", ".join(verdacht))
-    DOEL.unlink()
+    shutil.rmtree(werkmap, ignore_errors=True)
     sys.exit(1)
 print("   nagekeken : geen sleutelbestanden in het pakket")
 
 
 kop("4. Werkt het pakket op zichzelf?")
 
-with tempfile.TemporaryDirectory() as tijdelijk:
-    map_ = Path(tijdelijk)
-    with zipfile.ZipFile(DOEL) as z:
-        z.extractall(map_)
+uitpakmap = werkmap / "uitgepakt"
+with zipfile.ZipFile(tijdelijk_pakket) as z:
+    z.extractall(uitpakmap)
 
-    r = subprocess.run([sys.executable, "-m", "pytest"],
-                       cwd=map_, capture_output=True, text=True)
-    regels = [l.strip() for l in r.stdout.splitlines() if "passed" in l or "failed" in l]
-    uitslag = regels[-1] if regels else "geen uitslag gevonden"
-    print("   " + uitslag)
-    if r.returncode != 0:
-        print("   GESTOPT: de tests in het uitgepakte pakket slagen niet.")
-        print(r.stdout[-2000:])
-        sys.exit(1)
+r = subprocess.run([sys.executable, "-m", "pytest"],
+                   cwd=uitpakmap, capture_output=True, text=True)
+regels = [l.strip() for l in r.stdout.splitlines() if "passed" in l or "failed" in l]
+uitslag = regels[-1] if regels else "geen uitslag gevonden"
+print("   " + uitslag)
+if r.returncode != 0:
+    print("   GESTOPT: de tests in het uitgepakte pakket slagen niet.")
+    print(r.stdout[-2000:])
+    shutil.rmtree(werkmap, ignore_errors=True)
+    sys.exit(1)
 
 shutil.rmtree(PROJECT / ".pytest_cache", ignore_errors=True)
 
 
-kop("5. Briefje erbij over wat dit pakket is")
+kop("5. Briefje erbij en op zijn plaats zetten")
 
 briefje = (
     "AUDITPAKKET STOCKWAAKHOND V7.1\n"
@@ -162,9 +167,13 @@ briefje = (
     "Begin bij audit/VRAAG_2026-10-07.md. Daarin staat per punt wat er\n"
     "gebouwd is, wat je kunt narekenen en waar je zou moeten aanvallen.\n"
 )
-with zipfile.ZipFile(DOEL, "a", zipfile.ZIP_DEFLATED) as z:
+with zipfile.ZipFile(tijdelijk_pakket, "a", zipfile.ZIP_DEFLATED) as z:
     z.writestr("audit/PAKKET.txt", briefje)
 print("   audit/PAKKET.txt toegevoegd")
+
+shutil.copyfile(tijdelijk_pakket, DOEL)
+shutil.rmtree(werkmap, ignore_errors=True)
+print(f"   naar de projectmap gezet ({DOEL.stat().st_size // 1024} kB)")
 
 print("\n" + "=" * 70)
 print("KLAAR - het pakket is te versturen.")
