@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 130, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 131, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -260,7 +260,9 @@ alleen bijschrijven   doet de maandscan     leest alleen
   Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026, nadat
   `sql/03_smalle_deur.sql` erin stond: 55 van 55 goed tegen de echte database,
   met `deur_versie 3`. (Met alleen 01 en 02 waren het 42 controles; de
-  13 nieuwe horen bij de smalle deur.)
+  13 nieuwe horen bij de smalle deur.) De volledige uitvoer van beide rondes
+  staat in `audit/aanvalstest_2026-10-07.txt` en
+  `audit/aanvalstest_2026-10-07_ronde3.txt`.
 - `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
   externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
   sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
@@ -409,7 +411,16 @@ en er zelf naar te kijken.
 
 ## Wat nu open staat
 
-1. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+1. **Auditronde 3 loopt bij ChatGPT.** Bart heeft op 7 oktober 2026 het pakket
+   `stockwaakhond-voor-audit.zip` (commit `ee05594`) voorgelegd, met de vraag
+   in `audit/VRAAG_2026-10-07_ronde3.md`. Die vraag noemt zelf de plekken waar
+   het wankel zou kunnen zijn — afrondingen bij een wissel, de volgorde van de
+   controles in de smalle deur, de absolute marge van 0,01 in de SQL, en de
+   twee regels die bewust niet echt beproefd zijn. Komt er antwoord, behandel
+   het dan als ronde 1 en 2: eerst narekenen of de bevinding klopt, dan pas
+   bouwen, en nooit het bestaande bewijs aanraken.
+
+2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
    geworden, om twee redenen die allebei verholpen zijn:
 
@@ -424,7 +435,7 @@ en er zelf naar te kijken.
    via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
    of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
-2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
