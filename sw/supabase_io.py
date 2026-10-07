@@ -8,10 +8,11 @@ Wissen en wijzigen kan met geen van beide: dat is in de database zelf
 geblokkeerd. Deze module biedt er dan ook geen functie voor.
 
 Er is nog een derde manier naar binnen, met opzet heel smal: een
-databasefunctie die alleen dagkoersen en wisselkoersen mag toevoegen, en die
-om een eigen schrijfteken vraagt. Daarmee kan de dagelijkse taak op GitHub
-haar werk doen zonder dat de geheime sleutel daar ooit moet staan. Zie rpc()
-en sql/02_hardening.sql.
+databasefunctie die alleen de dagkoersen van vandaag mag toevoegen, van de
+aandelen die nu in de portefeuille zitten, allemaal samen of geen enkele. Ze
+vraagt om een eigen schrijfteken. Daarmee kan de dagelijkse taak op GitHub haar
+werk doen zonder dat de geheime sleutel daar ooit moet staan. Zie rpc() en
+sql/03_smalle_deur.sql.
 """
 
 from __future__ import annotations

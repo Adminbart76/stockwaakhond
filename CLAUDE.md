@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 90, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 128, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -116,6 +116,45 @@ Daar kwamen op 7 oktober 2026 deze bij, bij de hardening:
     dagelijkse taak heeft een schrijfteken dat alleen koersen mag toevoegen; de
     instap blijft een handeling van Bart zelf op zijn eigen computer.
 
+Daar kwamen op 7 oktober 2026 deze bij, na auditronde 2:
+
+13. **Er is één doorlopende portefeuille.** Eén keer €1.000, en daarna alleen
+    nog wisselen: bij een nieuw signaal wordt de dan geldende waarde
+    herverdeeld over de nieuwe Top-5. Winst, verlies en contant geld gaan mee.
+    Er komt nooit geld bij. De regels staan in
+    `audit/ONTWERP_doorlopende_portefeuille_2026-10-07.md`, de rekenkern in
+    `sw/herbalans.py`.
+14. **De omzetformule is letterlijk die van de bevroren simulatie**
+    (`simulate_forward()` in `app.py`): omzet = 0,5 × (som van de
+    gewichtsverschillen + contant geld), kost = omzet × 0,15 %. Daardoor komt de
+    instap van 6 oktober er ongewijzigd uit, en blijft het openstaande
+    kostenpunt hieronder open in plaats van stilletjes beslist.
+    `tests/test_herbalans.py` bewaakt dat de twee niet uit elkaar lopen.
+15. **SPY wordt bij een wissel letterlijk overgenomen.** Zelfde aantal
+    aandelen, zelfde aankoopkoers, geen kost. De maatstaf kan dus per
+    constructie niet meebetalen aan de rotatie van StockWaakhond en wordt nooit
+    teruggezet naar €1.000.
+16. **Een dag is compleet of hij bestaat niet.** Ontbreekt één koers van een
+    actieve positie of van SPY, dan wordt er niets vastgelegd en faalt de taak.
+    Een halve dag is niet te herstellen en geeft een gat dat niemand ziet.
+17. **De automatische deur kent alleen vandaag en alleen de huidige
+    portefeuille.** `leg_dagkoersen_vast()` weigert elke andere datum, elk
+    moment voor de slotbel, elk weekend en elk aandeel dat niet in de actuele
+    uitvoering zit. Een oude dag bijschrijven is een aparte beheershandeling met
+    de geheime sleutel: `scripts/herstel_dagkoers.py`, met reden en
+    beheerslogboek.
+18. **Het dashboard zegt wat er níet in zit.** Zolang dividend nergens is
+    aangesloten, staat er bij de bedragen dat dit alleen de koersen zijn.
+    "Beide kanten missen evenveel" is waar, maar wie dat niet weet, leest de
+    cijfers als het volledige rendement.
+19. **De database is nooit het enige controlespoor.** Wie eigenaar is van de
+    database kan triggers en functies wijzigen, uitzetten of weghalen - ook de
+    functie die vertelt dat ze aanstaan. Daarom blijft het spoor erbuiten
+    nodig: de openbare Git-geschiedenis, de hash-keten in `forward_log/` en de
+    bestanden in `bewijs/`. Wijkt de database daarvan af, dan is de database
+    fout. Dat staat zo in `sql/03_smalle_deur.sql` en in de uitvoer van
+    `scripts/controleer_slot.py`.
+
 ## Wat bewust open blijft
 
 **De kostenconventie bij een wissel — beslissen vóór 3 november 2026.**
@@ -132,9 +171,35 @@ zetten.
 rotatie het verschil maken tussen winst en verlies. Nu niet toevoegen; hoort bij
 de realistische tweede curve.
 
-**Dividendbelasting.** De tabel `dividends` heeft een veld voor netto, maar de
-percentages zijn nog niet vastgelegd. Eerste dividend van MPC en VLO wordt
-rond november 2026 verwacht, HPE en SPY rond december.
+**Dividendbelasting — beslissen vóór het eerste dividend binnenkomt.**
+De tabel `dividends` heeft een veld voor netto, maar de percentages zijn nog
+niet vastgelegd. Eerste dividend van MPC en VLO wordt rond november 2026
+verwacht, HPE en SPY rond december.
+
+Dit is sinds 7 oktober 2026 een harde blokkade en geen detail meer: valt er
+tussen twee wissels een ex-dividenddatum, dan **stopt**
+`scripts/leg_herbalans_vast.py` tot de conventie gekozen is (draaien met
+`--dividend=bruto` of `--dividend=netto`). Stil nul euro meerekenen zou een
+wissel met een verkeerd bedrag voor altijd vastleggen. Te kiezen: bruto of
+netto, en bij netto welke percentages (Amerikaanse bronheffing plus Belgische
+roerende voorheffing).
+
+**Herbelegt SPY zijn dividend?** Aan de kant van StockWaakhond wordt contant
+dividend bij de volgende wissel meebelegd - dat volgt uit de doorlopende
+portefeuille. SPY koopt niets bij en houdt het dus contant. Dat is een klein
+maar systematisch verschil in het voordeel van StockWaakhond. Voorstel: SPY zijn
+dividend laten herbeleggen tegen de slotkoers van de ex-datum, zonder kost,
+zodat beide kanten hun uitkeringen op dezelfde manier laten doorwerken. Nog niet
+beslist, en nog nergens aangesloten, dus het speelt pas bij het eerste dividend.
+
+**De wisselkoers bij een volgende wissel.** Het huidige getal hangt af van het
+moment waarop Bart binnen het avondvenster op het BAT-bestand klikt: binnen dat
+venster beweegt de dagbalk van `EURUSD=X` gewoon mee. Voor signaal 2 hoort daar
+een regel te staan waarbij twee mensen dezelfde avond hetzelfde getal krijgen.
+Het voorstel staat in `audit/VOORSTEL_FX_2026-10-07.md` (de 1-minuutbalk van
+16:00 in New York, met de ECB-koers als onafhankelijk controlegetal). **Er is
+niets van geïmplementeerd**: dit wacht op een expliciet ja. De uitvoering van
+6 oktober 2026 blijft hoe dan ook zoals ze is.
 
 **Privé-apps op Streamlit Community Cloud** blijken op het gratis plan niet te
 bestaan: het heet er letterlijk "deploy a public app", afschermen zit bij de
@@ -161,12 +226,27 @@ alleen bijschrijven   doet de maandscan     leest alleen
 
 - `sw/` is de rekenkern zonder schermcode: `strategy.py` (bevroren formule),
   `ledger.py` (lezen, controleren, bijschrijven — met opzet geen enkele functie
-  die iets wist), `portfolio.py`, `prices.py`, `supabase_io.py`, en sinds
-  7 oktober 2026 `beurskalender.py`: alle klokregels op één plek, zonder
+  die iets wist), `portfolio.py` (de instap), `herbalans.py` (elke wissel
+  daarna, plus de keten van uitvoeringen), `prices.py`, `supabase_io.py`, en
+  sinds 7 oktober 2026 `beurskalender.py`: alle klokregels op één plek, zonder
   internet, met een `nu` die je in een test kunt meegeven.
-- `streamlit_app.py` is het dashboard. Het leest alleen.
-- `sql/01_schema.sql` en `sql/02_hardening.sql` zijn allebei idempotent;
-  opnieuw draaien is veilig en verandert geen bestaande rij.
+- `streamlit_app.py` is het dashboard. Het leest alleen, en het toont altijd de
+  laatste uitvoering uit de keten — niet de uitvoering van het laatste signaal.
+  Tussen een nieuw signaal en de wissel de avond erna blijft de oude
+  portefeuille immers gewoon de portefeuille.
+- `sql/01_schema.sql`, `sql/02_hardening.sql` en `sql/03_smalle_deur.sql` zijn
+  alle drie idempotent; opnieuw draaien is veilig en verandert geen bestaande
+  rij. **De volgorde telt**: 03 vervangt twee functies uit 02 door een
+  strengere versie. Draai je 02 opnieuw, draai dan daarna ook 03. Dat valt
+  meteen op: `hardening_status()` geeft dan geen `deur_versie` 3 meer terug en
+  `scripts/controleer_slot.py` slaat alarm.
+- `scripts/leg_instap_vast.py` is de eerste keer, `scripts/leg_herbalans_vast.py`
+  elke keer daarna (`LEG WISSEL VAST (na 22u20).bat`). Allebei lokaal, nooit
+  vanuit GitHub.
+- `scripts/herstel_dagkoers.py` is de enige manier om een gemiste dag bij te
+  schrijven: met de geheime sleutel, met een reden, met een bevestiging, en met
+  een regel in het beheerslogboek. Een wisselkoers van een oude dag haalt het
+  niet bij Yahoo maar vraagt hij aan jou, met bron.
 - `scripts/controleer_slot.py` valt de database aan met de geheime sleutel erbij.
   Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026: 42 van 42
   goed, tegen de echte database.
@@ -286,20 +366,60 @@ Wat er nu staat, kan een latere lezer narekenen.
 De bestaande uitvoering van 6 oktober 2026 blijft exact zoals ze is. Haar
 `fx_asof` (20:54 UTC, 54 minuten na de slotbel) valt binnen beide vensters.
 
+## Auditronde 2, uitgevoerd op 7 oktober 2026
+
+ChatGPT keek de hardening na en vond zes punten. Alle zes afgehandeld; twee
+ervan eindigen bewust in een beslissing voor Bart in plaats van in code.
+
+1. **De €1.000 is één doorlopende portefeuille geworden.** Dat was de ernstige:
+   `bereken_instap()` begon elke keer opnieuw met €1.000, en vanaf signaal 2
+   zou dat elke maand vers geld in de reeks gestopt hebben. Ontwerp eerst
+   opgeschreven (`audit/ONTWERP_doorlopende_portefeuille_2026-10-07.md`), daarna
+   gebouwd in `sw/herbalans.py` met 30 tests.
+2. **De automatische deur is veel smaller** (`sql/03_smalle_deur.sql`): alleen
+   de afgesloten beursdag van nu, alleen de huidige posities plus SPY,
+   compleet of niets, en de wisselkoers verplicht zolang die bij die dag hoort.
+3. **De dagtaak faalt nu waar ze vroeger iets oversloeg**: een ontbrekende
+   koers of een ontbrekende wisselkoers binnen het venster maakt de taak rood.
+4. **Het dashboard zegt dat dividend nergens meeteelt.** De rekenkern kan het
+   wel, maar de fiscale conventie ligt niet vast; zie het open punt hierboven.
+5. **De wisselkoersregel voor volgende wissels is een voorstel gebleven**
+   (`audit/VOORSTEL_FX_2026-10-07.md`). Niets geïmplementeerd zonder akkoord.
+6. **`hardening_status()` kijkt nu ook of de wachters aanstaan** (`tgenabled`),
+   en zegt er eerlijk bij wat een databasebeheerder alsnog kan. Zie beslissing
+   19 hierboven.
+
+Onderweg gevonden en meteen hersteld, los van de audit: de grafiek op het
+dashboard crashte zodra er een tweede dag bij kwam (`'datum' is both an index
+level and a column label`). Dat zou dus op 8 oktober 2026 zichtbaar geworden
+zijn. Gevonden door het dashboard met een nagebootste tweede wissel te draaien
+en er zelf naar te kijken.
+
 ## Wat nu open staat
 
-1. **De eerste geplande dagtaak nakijken.** Alles staat erin en is handmatig
+1. **`sql/03_smalle_deur.sql` uitvoeren in Supabase.** Zolang dat niet gebeurd
+   is, staat de oude, wijdere deur nog open en kan er nog geen wissel
+   vastgelegd worden (de nieuwe kolommen bestaan dan niet). Daarna
+   `python scripts/controleer_slot.py` draaien: die hoort `deur_versie 3` te
+   zien en voert dan pas de nieuwe aanvalstests uit. **Draai het aanvalsscript
+   niet vóór de SQL erin staat** — het script weigert die pogingen dan zelf,
+   want zonder de nieuwe regels zou er een verzonnen wisselkoers in de
+   geschiedenis kunnen belanden.
+
+2. **De eerste geplande dagtaak nakijken.** Alles staat erin en is handmatig
    bewezen, maar de taak van 21:30 UTC heeft nog niet uit zichzelf gedraaid.
    Kijk de eerstvolgende beursdag bij Actions of ze groen is en of er een
    wisselkoers bij staat. Draait ze ooit na middernacht in Londen, dan slaat ze
    de wisselkoers over en wordt ze rood: de slotkoersen staan dan wel vast, maar
    die dag mist een wisselkoers en dat hoort opgemerkt te worden.
 
-2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
    wijzigen niemand. Het e-mailadres van Barts broer is nog niet doorgegeven.
 
 Wat je er níet mee moet doen: de bevroren curve herrekenen met andere kosten,
-de scan in de webapp zetten, of het openstaande kostenpunt zelf beslissen.
+de scan in de webapp zetten, het openstaande kostenpunt zelf beslissen, zelf een
+dividendpercentage invullen, of de nieuwe wisselkoersregel invoeren zonder dat
+Bart er ja op gezegd heeft.

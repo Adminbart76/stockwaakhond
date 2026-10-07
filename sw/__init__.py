@@ -10,6 +10,7 @@ __all__ = [
     "strategy",        # de bevroren scoreformule
     "ledger",          # het append-only logboek
     "portfolio",       # de virtuele portefeuille
+    "herbalans",       # de doorlopende portefeuille: wisselen zonder nieuw geld
     "prices",          # koersen ophalen bij Yahoo
     "supabase_io",     # praten met de database
 ]

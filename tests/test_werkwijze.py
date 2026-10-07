@@ -22,7 +22,10 @@ PROJECT = Path(__file__).resolve().parent.parent
 WORKFLOW = PROJECT / ".github" / "workflows" / "dagelijks.yml"
 SNAPSHOT = PROJECT / "scripts" / "dagelijkse_snapshot.py"
 INSTAP = PROJECT / "scripts" / "leg_instap_vast.py"
+WISSEL = PROJECT / "scripts" / "leg_herbalans_vast.py"
+HERSTEL = PROJECT / "scripts" / "herstel_dagkoers.py"
 HARDENING = PROJECT / "sql" / "02_hardening.sql"
+SMALLE_DEUR = PROJECT / "sql" / "03_smalle_deur.sql"
 
 
 def meldingen_per_afloop(bestand: Path) -> dict:
@@ -150,4 +153,90 @@ def test_de_dagtaak_roept_dezelfde_schrijfdeur_aan_als_de_sql_maakt():
     assert "leg_dagkoersen_vast" in tekst
     assert "Supabase.schrijver" not in tekst, (
         "De dagelijkse taak hoort zonder de geheime sleutel te werken."
+    )
+
+
+# ------------------------------------------------- de smallere deur (ronde 3)
+def test_de_smalle_deur_staat_in_het_project():
+    assert SMALLE_DEUR.exists(), "sql/03_smalle_deur.sql ontbreekt."
+    tekst = SMALLE_DEUR.read_text(encoding="utf-8").lower()
+    for regel in (
+        "beursdag van nu",            # geen willekeurige oude datum meer
+        "20 minutes",                 # nooit voor de slotbel plus marge
+        "isodow",                     # geen weekenddag
+        "actieve_tickers",            # alleen de huidige portefeuille
+        "niet compleet",              # alles of niets
+        "huidige portefeuille",       # een vreemd aandeel wordt geweigerd
+        "executions_een_opvolger",    # geen tweede keten van uitvoeringen
+        "prev_exec_hash",             # de keten zelf
+        "tgenabled",                  # staan de wachters ook aan
+        "deur_versie",                # is 03 werkelijk uitgevoerd
+        "mag_dagkoers_vastleggen",    # de deur bevragen zonder te schrijven
+    ):
+        assert regel in tekst, f"sql/03_smalle_deur.sql mist '{regel}'."
+
+
+def test_de_dagtaak_volgt_de_huidige_portefeuille_en_niet_de_geschiedenis():
+    tekst = SNAPSHOT.read_text(encoding="utf-8")
+    assert "hb.actieve_tickers(" in tekst, (
+        "De dagtaak hoort de aandelen van de ACTUELE uitvoering te volgen. "
+        "Alles wat ooit gekozen is, wordt elke maand een langere lijst."
+    )
+    assert "for s in signalen:" not in tekst, (
+        "Hier werd over alle signalen gelopen; dat is precies de te wijde lijst."
+    )
+
+
+def test_een_onvolledige_dag_is_een_fout():
+    meldingen = meldingen_per_afloop(SNAPSHOT)
+    assert komt_voor(meldingen["stop"], "niet compleet"), (
+        "Een dag met een ontbrekende koers hoort de taak te laten falen, niet "
+        "stil een gat in de grafiek achter te laten."
+    )
+    assert not komt_voor(meldingen["klaar"], "niet compleet")
+
+
+def test_een_ontbrekende_wisselkoers_binnen_het_venster_is_een_fout():
+    meldingen = meldingen_per_afloop(SNAPSHOT)
+    assert komt_voor(meldingen["stop"], "niet bruikbaar opgehaald"), (
+        "Hoort de wisselkoers bij deze dag en levert Yahoo hem niet, dan is dat "
+        "een probleem en geen reden om de dag half weg te schrijven."
+    )
+
+
+def test_herstellen_van_een_oude_dag_is_een_aparte_beheershandeling():
+    assert HERSTEL.exists(), "scripts/herstel_dagkoers.py ontbreekt."
+    tekst = HERSTEL.read_text(encoding="utf-8")
+    assert "SUPABASE_SERVICE_KEY" in tekst, (
+        "Herstellen hoort alleen te kunnen met de geheime sleutel, die niet in "
+        "GitHub staat."
+    )
+    assert "audit_log" in tekst, "Een herstelactie hoort in het beheerslogboek."
+    assert "herstel_dagkoers" not in WORKFLOW.read_text(encoding="utf-8"), (
+        "Herstellen hoort nooit vanuit GitHub te gebeuren."
+    )
+
+
+# ------------------------------------------- de doorlopende portefeuille
+def test_de_wissel_gebeurt_niet_vanuit_github():
+    """Die schrijft in `executions`, en dat is bewijsmateriaal."""
+    assert WISSEL.exists(), "scripts/leg_herbalans_vast.py ontbreekt."
+    assert "leg_herbalans_vast" not in WORKFLOW.read_text(encoding="utf-8")
+
+
+def test_dividend_zonder_conventie_stopt_de_wissel():
+    meldingen = meldingen_per_afloop(WISSEL)
+    assert komt_voor(meldingen["stop"], "conventie ligt niet vast"), (
+        "Stil nul euro dividend meerekenen legt een wissel met een verkeerd "
+        "bedrag voor altijd vast."
+    )
+
+
+def test_een_tweede_instap_met_vers_geld_bestaat_niet():
+    """De eerste keer is een instap, daarna is het altijd een wissel."""
+    tekst = WISSEL.read_text(encoding="utf-8")
+    assert "bereken_herbalans" in tekst
+    assert "bereken_instap" not in tekst, (
+        "bereken_instap() begint met 1.000 euro. Vanaf het tweede signaal mag "
+        "dat nooit meer gebeuren."
     )

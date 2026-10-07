@@ -32,13 +32,16 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, time, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import requests
 
 PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
+from sw import herbalans as hb                       # noqa: E402
 from sw.strategy import canonical_json, sha256_text  # noqa: E402
 from sw.supabase_io import lees_instellingen         # noqa: E402
 
@@ -51,6 +54,13 @@ TEKEN = cfg.get("SNAPSHOT_WRITE_TOKEN")
 # Een beursdag die nog moet komen. Daarom weigert de database elk record dat
 # deze datum draagt, wat er verder ook in staat.
 AANVALSDATUM = "2027-01-04"
+
+# De klok van de beurs. Een deel van de regels hieronder gaat over tijd, en dan
+# doet het ertoe of het in New York nu voor of na de slotbel is.
+BEURS = ZoneInfo("America/New_York")
+NU_NY = datetime.now(BEURS)
+VANDAAG_NY = NU_NY.date()
+NA_DE_SLOTBEL = (NU_NY.hour, NU_NY.minute) >= (16, 20)
 
 uitslagen = []
 
@@ -219,7 +229,10 @@ r = rpc(LEZEN or GEHEIM, "hardening_status", {})
 if r.status_code == 200:
     stand = r.json() or {}
     for naam, waarde in sorted(stand.items()):
-        print(f"   {'OK  ' if waarde else 'NEE '}  {naam}")
+        if isinstance(waarde, bool):
+            print(f"   {'OK  ' if waarde else 'NEE '}  {naam}")
+        else:
+            print(f"         {naam}: {waarde}")
 else:
     print(f"   FOUT  hardening_status() bestaat nog niet (HTTP {r.status_code})")
 
@@ -228,6 +241,32 @@ uitvoeringsregels = bool(stand.get("velden_moeten_kloppen"))
 schrijfdeur = bool(stand.get("schrijfdeur_bestaat"))
 teken_gezet = bool(stand.get("schrijfteken_ingesteld"))
 uitslagen.append(ketenregels and uitvoeringsregels and schrijfdeur)
+
+# Bestaan is niet genoeg: een trigger kan uitgezet zijn en blijft dan gewoon in
+# de lijst staan terwijl hij niets meer doet.
+AANSTAAN = [
+    "keten_moet_kloppen_staat_aan",
+    "velden_moeten_kloppen_staat_aan",
+    "hash_moet_kloppen_staat_aan",
+    "sloten_staan_aan",
+]
+uit = [naam for naam in AANSTAAN if not stand.get(naam)]
+uitslagen.append(not uit)
+print(f"   {'OK  ' if not uit else 'FOUT'}  alle wachters staan ook werkelijk aan"
+      + (f" (uit of onbekend: {', '.join(uit)})" if uit else ""))
+
+deur_versie = int(stand.get("deur_versie") or 0)
+uitslagen.append(deur_versie >= 3)
+print(f"   {'OK  ' if deur_versie >= 3 else 'FOUT'}  de schrijfdeur is versie "
+      f"{deur_versie} (verwacht: 3 of hoger)")
+if deur_versie < 3:
+    print()
+    print("   " + "!" * 70)
+    print("   sql/03_smalle_deur.sql is niet uitgevoerd, of 02_hardening.sql is")
+    print("   er daarna nog eens over gegaan. Voer 03 opnieuw uit in de SQL")
+    print("   Editor van Supabase; zolang dat niet gebeurd is, staat de deur voor")
+    print("   de dagelijkse taak wijder open dan bedoeld.")
+    print("   " + "!" * 70)
 
 if not ketenregels:
     print()
@@ -436,21 +475,55 @@ if schrijfdeur:
                "p_koersen": [{"ticker": "SPY", "close_raw": 1.0}]}),
            melding_bevat="klopt niet")
 
-    if TEKEN and teken_gezet:
-        poging("een aandeel dat niet in de portefeuille zit", "mislukken",
+    if TEKEN and teken_gezet and deur_versie < 3:
+        print()
+        print("   " + "!" * 70)
+        print("   De smallere deur uit sql/03_smalle_deur.sql staat nog niet in de")
+        print("   database. De pogingen hieronder worden NIET gedaan: zonder die")
+        print("   regels zou een van hen werkelijk een verzonnen wisselkoers op een")
+        print("   oude dag kunnen achterlaten, en weghalen kan niet meer.")
+        print("   Voer eerst 03 uit in de SQL Editor van Supabase.")
+        print("   " + "!" * 70)
+
+    if TEKEN and teken_gezet and deur_versie >= 3:
+        # Een dag die al voorbij is. De bestaande slotkoers van SPY staat er al,
+        # dus zelfs als elke regel zou ontbreken, kan deze poging niets
+        # veranderen: bestaande koersen worden nooit overschreven.
+        poging("een koers bijschrijven op een willekeurige oude dag", "mislukken",
                lambda: rpc(sleutel, "leg_dagkoersen_vast", {
                    "p_token": TEKEN, "p_datum": "2026-10-06",
-                   "p_koersen": [{"ticker": "VERZONNEN", "close_raw": 1.0}]}),
-               melding_bevat="hoort niet bij de portefeuille")
+                   "p_koersen": [{"ticker": "SPY", "close_raw": 1.0}]}),
+               melding_bevat="beursdag van nu")
 
         poging("een koers voor een dag die nog moet komen", "mislukken",
                lambda: rpc(sleutel, "leg_dagkoersen_vast", {
                    "p_token": TEKEN, "p_datum": "2030-01-02",
                    "p_koersen": [{"ticker": "SPY", "close_raw": 1.0}]}),
-               melding_bevat="bestaat nog geen slotkoers")
+               melding_bevat="beursdag van nu")
 
-        # Een bestaande slotkoers overschrijven: de aanroep mag slagen, maar
-        # er mag niets veranderen.
+        poging("een willekeurige wisselkoers op een verkeerde dag", "mislukken",
+               lambda: rpc(sleutel, "leg_dagkoersen_vast", {
+                   "p_token": TEKEN, "p_datum": "2026-10-05",
+                   "p_koersen": [{"ticker": "SPY", "close_raw": 1.0}],
+                   "p_fx": {"pair": "EURUSD", "rate": 1.5}}),
+               melding_bevat="beursdag van nu")
+
+        # Deze poging kan alleen slagen op een weekdag na de slotbel; daarvoor
+        # strandt ze op de tijdregel en zegt ze dus niets over de tickerregel.
+        if NA_DE_SLOTBEL and VANDAAG_NY.weekday() < 5:
+            poging("een aandeel dat niet in de huidige portefeuille zit", "mislukken",
+                   lambda: rpc(sleutel, "leg_dagkoersen_vast", {
+                       "p_token": TEKEN, "p_datum": str(VANDAAG_NY),
+                       "p_koersen": [{"ticker": "AAPL", "close_raw": 1.0}]}),
+                   melding_bevat="huidige portefeuille")
+        else:
+            print("   (de poging met een vreemd aandeel is overgeslagen: in New York")
+            print("    is de beurs nu niet gesloten, dus die strandt op de tijdregel.")
+            print("    Hieronder wordt dezelfde regel bevraagd zonder te schrijven.)")
+
+        # Een bestaande slotkoers overschrijven. Sinds de smallere deur wordt
+        # zo'n aanroep al op de datum geweigerd; of hij nu strandt of niet, de
+        # koers die er staat moet dezelfde blijven.
         r = requests.get(
             f"{URL}/rest/v1/price_snapshots?select=*&order=snapshot_date.desc&limit=1",
             headers=koppen(GEHEIM), timeout=30)
@@ -467,19 +540,81 @@ if schrijfdeur:
                 f"&snapshot_date=eq.{rij['snapshot_date']}&ticker=eq.{rij['ticker']}",
                 headers=koppen(GEHEIM), timeout=30)
             na = (r2.json() or [{}])[0]
-            onveranderd = (
-                antwoord.status_code == 200
-                and str(na.get("close_raw")) == str(rij.get("close_raw"))
-            )
+            onveranderd = str(na.get("close_raw")) == str(rij.get("close_raw"))
             uitslagen.append(onveranderd)
             print(f"   {'OK  ' if onveranderd else 'FOUT'}  een bestaande slotkoers "
                   f"overschrijven verandert niets")
             print(f"         koers blijft {rij.get('close_raw')} "
-                  f"(nu: {na.get('close_raw')})")
-    else:
+                  f"(nu: {na.get('close_raw')}, antwoord: HTTP "
+                  f"{antwoord.status_code})")
+
+    if not (TEKEN and teken_gezet):
         print("   (het schrijfteken zelf is hier niet bekend; die pogingen zijn")
         print("    overgeslagen. Zet SNAPSHOT_WRITE_TOKEN in SLEUTELS_INVULLEN.txt")
         print("    en voer de regel uit die daar bij punt 6 staat.)")
+
+
+# ===========================================================================
+if schrijfdeur and deur_versie >= 3:
+    print("\n5b. DE DEUR BEVRAGEN ZONDER TE SCHRIJVEN")
+    print("   (twee regels worden pas bereikt als al het andere klopt: 'de dag")
+    print("    moet compleet zijn' en 'dit is geen koers'. Die echt proberen zou")
+    print("    bij een gat in de beveiliging een dag met verzonnen cijfers")
+    print("    achterlaten, en dat is niet meer weg te halen. Daarom wordt")
+    print("    dezelfde vraag gesteld aan een functie die niets wegschrijft.)")
+
+    def vraag(**argumenten):
+        r = rpc(LEZEN or GEHEIM, "mag_dagkoers_vastleggen", argumenten)
+        if r.status_code != 200:
+            print(f"   FOUT  mag_dagkoers_vastleggen() antwoordde HTTP {r.status_code}")
+            uitslagen.append(False)
+            return None
+        return r.json()
+
+    def controle(omschrijving: str, antwoord, veld: str, verwacht) -> None:
+        gevonden = antwoord.get(veld) if isinstance(antwoord, dict) else None
+        goed = gevonden == verwacht
+        uitslagen.append(goed)
+        print(f"   {'OK  ' if goed else 'FOUT'}  {omschrijving}")
+        print(f"         {veld} = {gevonden}   (verwacht: {verwacht})")
+
+    een_minuut_voor_de_bel = datetime.combine(
+        VANDAAG_NY, time(15, 59), BEURS).astimezone(timezone.utc).isoformat()
+    antwoord = vraag(p_datum=str(VANDAAG_NY), p_nu=een_minuut_voor_de_bel)
+    controle("vandaag, een minuut voor de slotbel: mag niet", antwoord, "mag", False)
+    controle("   en de reden is de slotbel", antwoord,
+             "na_de_slotbel_plus_marge", False)
+
+    zaterdag = VANDAAG_NY - timedelta(days=(VANDAAG_NY.weekday() - 5) % 7)
+    antwoord = vraag(p_datum=str(zaterdag))
+    controle(f"een zaterdag ({zaterdag}): mag niet", antwoord, "mag", False)
+    controle("   en de reden is dat het geen beursdag is", antwoord,
+             "is_een_weekdag", False)
+
+    antwoord = vraag(p_datum=str(VANDAAG_NY))
+    actief = (antwoord or {}).get("toegestane_tickers") or []
+    bron = (antwoord or {}).get("bron_van_de_lijst")
+    goed = bron == "de actuele uitvoering"
+    uitslagen.append(goed)
+    print(f"   {'OK  ' if goed else 'FOUT'}  de lijst komt uit de huidige "
+          f"portefeuille en niet uit alle oude signalen")
+    print(f"         {len(actief)} aandelen: {', '.join(actief)}")
+    print(f"         bron: {bron}")
+
+    if len(actief) >= 2:
+        antwoord = vraag(p_datum=str(VANDAAG_NY), p_tickers=actief[:-1])
+        controle(f"een dag zonder {actief[-1]}: niet compleet",
+                 antwoord, "lijst_is_compleet", False)
+        antwoord = vraag(p_datum=str(VANDAAG_NY), p_tickers=actief)
+        controle("de volledige lijst: compleet", antwoord,
+                 "lijst_is_compleet", True)
+
+    antwoord = vraag(p_datum=str(VANDAAG_NY), p_fx=99.0)
+    controle("een wisselkoers van 99 dollar voor een euro: geen koers",
+             antwoord, "wisselkoers_bruikbaar", False)
+    antwoord = vraag(p_datum=str(VANDAAG_NY), p_fx=1.13)
+    controle("een wisselkoers van 1,13: wel een koers",
+             antwoord, "wisselkoers_bruikbaar", True)
 
 
 # ===========================================================================
@@ -547,6 +682,14 @@ if uitvoeringen:
     uitslagen.append(goed)
     print(f"   {'OK  ' if goed else 'FOUT'}  de uitvoering van de portefeuille is onveranderd")
 
+    # De keten van uitvoeringen: een doorlopende portefeuille van 1.000 euro
+    # staat of valt ermee dat elke wissel aan de vorige hangt en er maar een
+    # aan kan hangen.
+    ok, bericht = hb.verify_keten(na_uit)
+    uitslagen.append(ok)
+    print(f"   {'OK  ' if ok else 'FOUT'}  de keten van uitvoeringen klopt")
+    print(f"         {bericht}")
+
 
 print("\n" + "=" * 78)
 mislukt = uitslagen.count(False)
@@ -556,5 +699,13 @@ if mislukt:
 print(f"ALLE {len(uitslagen)} CONTROLES GOED.")
 print("De vastgelegde forward-test kan niet gewijzigd of gewist worden,")
 print("ook niet met de geheime sleutel. Een vervalst signaal komt er niet in,")
-print("en de dagelijkse taak kan met haar schrijfteken alleen koersen toevoegen.")
+print("en de dagelijkse taak kan met haar schrijfteken alleen de koersen van")
+print("vandaag toevoegen, van de aandelen die nu in de portefeuille zitten.")
+print()
+print("Wat deze test NIET kan uitsluiten, en wat je dus elders moet nakijken:")
+print("wie eigenaar is van de database kan triggers en functies wijzigen of")
+print("uitzetten - ook de functie die hierboven vertelt dat ze aanstaan. Het")
+print("controlespoor buiten de database blijft daarom nodig: de openbare")
+print("Git-geschiedenis, de hash-keten in forward_log/ en de bestanden in")
+print("bewijs/. Wijkt de database daarvan af, dan is de database fout.")
 print("=" * 78)

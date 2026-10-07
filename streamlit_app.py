@@ -21,6 +21,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from sw import herbalans as hb
 from sw import ledger as led
 from sw import portfolio as pf
 from sw import prices as pr
@@ -220,9 +221,38 @@ if not signalen:
     st.stop()
 
 signaal = signalen[-1]
-tickers = [s["ticker"] for s in signaal["selected"]]
-uitvoering = next(
-    (u for u in gegevens["uitvoeringen"] if u["entry_hash"] == signaal["entry_hash"]), None)
+nieuwe_keuze = [s["ticker"] for s in signaal["selected"]]
+
+# De portefeuille loopt door. Er wordt een keer 1.000 euro ingelegd en daarna
+# alleen gewisseld, dus wat er NU in zit staat in de laatste uitvoering - niet
+# per se in de uitvoering van het laatste signaal. Tussen een nieuwe selectie en
+# de wissel de avond erna blijft de oude portefeuille gewoon de portefeuille.
+uitvoeringen = gegevens["uitvoeringen"]
+uitvoering, keten_fout = None, None
+try:
+    keten_ok_nu, keten_bericht = hb.verify_keten(uitvoeringen)
+    if keten_ok_nu:
+        uitvoering = hb.laatste_uitvoering(uitvoeringen)
+    else:
+        keten_fout = keten_bericht
+except Exception as fout:
+    keten_fout = str(fout)
+
+if keten_fout:
+    st.error(
+        "**De gegevens van de portefeuille spreken elkaar tegen, dus er wordt "
+        "hier niets getoond.**\n\n"
+        "De opeenvolgende wissels horen een sluitende reeks te vormen. Dat is "
+        "nu niet zo, en dan is elk bedrag dat we hier zouden tonen een gok. "
+        "Dit hoort nagekeken te worden voor er verder iets mee gedaan wordt.\n\n"
+        "Technische melding: " + keten_fout
+    )
+    st.stop()
+
+tickers = (
+    [p["ticker"] for p in uitvoering["positions"]] if uitvoering else nieuwe_keuze)
+wacht_op_wissel = bool(
+    uitvoering is not None and uitvoering["entry_hash"] != signaal["entry_hash"])
 open_nu, beurs_uitleg = beurs_status()
 
 
@@ -254,16 +284,23 @@ if uitvoering is None:
         )
 
 else:
+    # De laatste uitvoering beschrijft de huidige toestand: welke aandelen,
+    # hoeveel stuks, hoeveel contant geld, en de onveranderde SPY-positie.
     instap = {
         "start_capital_eur": float(uitvoering["start_capital_eur"]),
         "invested_eur": float(uitvoering["invested_eur"]),
         "cost_eur": float(uitvoering["cost_eur"]),
         "execution_date": uitvoering["execution_date"],
+        "cash_usd": float(uitvoering.get("cash_usd") or 0.0),
         "positions": uitvoering["positions"],
         "benchmark": uitvoering["benchmark"],
     }
 
-    nodig = tickers + ["SPY"]
+    nodig = sorted(set(tickers) | {"SPY"})
+    # Voor de grafiek is ook het verleden nodig: wat er vroeger in de
+    # portefeuille zat, hoort nog bij het verloop van toen.
+    eerste = hb.sorteer_keten(uitvoeringen)[0]
+    alles_nodig = sorted(set(hb.tickers_in_keten(uitvoeringen)) | set(nodig))
 
     # De vastgelegde dagkoersen uit onze eigen database. Die hebben we toch al
     # nodig voor de grafiek, en ze zijn tegelijk de terugvaloptie voor
@@ -272,7 +309,7 @@ else:
         pd.DataFrame(), pd.Series(dtype=float), None, None)
     try:
         dagkoersen, fx_reeks, koersbron = haal_dagkoersen(
-            tuple(nodig), instap["execution_date"])
+            tuple(alles_nodig), eerste["execution_date"])
     except Exception as fout:
         dagkoersen_fout = str(fout)
 
@@ -307,6 +344,18 @@ else:
     verse_koersen = not verouderd and not ontbreekt
 
     st.header("Hoe staat de virtuele portefeuille ervoor?")
+
+    if wacht_op_wissel:
+        st.info(
+            f"**Er is een nieuwe selectie vastgelegd op "
+            f"{datum_nl(signaal['signal_market_date'])}: "
+            f"{', '.join(nieuwe_keuze)}.**\n\n"
+            "Hieronder staat nog de portefeuille zoals ze nu is. Ze wisselt "
+            "tegen de slotkoers van de eerste beursdag na die keuze; dat "
+            "gebeurt met de hand, na de slotbel. Er komt geen geld bij: wat de "
+            "portefeuille op dat moment waard is, wordt opnieuw over vijf "
+            "aandelen verdeeld."
+        )
 
     waardering = None
     if ontbreekt or fx_nu is None:
@@ -350,6 +399,14 @@ if uitvoering is not None and waardering is not None:
               help="SPY is een fonds dat de 500 grootste Amerikaanse "
                    "beursbedrijven volgt. Het is de maatstaf: haalt de "
                    "strategie meer dan dit, dan was het kiezen de moeite waard.")
+
+    # Zeggen wat er NIET in zit. "Beide kanten missen evenveel" is waar, maar
+    # wie dat niet weet, leest deze bedragen als het volledige rendement.
+    st.caption(
+        "Dit zijn alleen de koersen. Uitgekeerd dividend telt bij geen van de "
+        "twee mee: niet bij de vijf aandelen en niet bij SPY. Allebei de "
+        "bedragen zouden er dus iets hoger uitkomen."
+    )
 
     # Een verschil van enkele honderdsten van een procent is ruis, geen
     # voorsprong. Dat zo noemen zou een leek een conclusie laten trekken die
@@ -414,7 +471,9 @@ if uitvoering is not None:
         )
     else:
         try:
-            verloop = pf.bouw_verloop(instap, dagkoersen, fx_reeks)
+            # Over de hele keten: op elke wisseldag neemt het nieuwe mandje het
+            # over van het oude, met dezelfde 1.000 euro als meetlat.
+            verloop = hb.bouw_verloop_keten(uitvoeringen, dagkoersen, fx_reeks)
         except Exception as fout:
             st.warning(
                 "Het verloop kon op dit moment niet berekend worden."
@@ -422,16 +481,28 @@ if uitvoering is not None:
             )
 
     if len(verloop) >= 2:
+        # reset_index is hier geen opsmuk: zonder dat heet de index van `lang`
+        # ook "datum", net als de kolom, en dan weet sort_values hieronder niet
+        # welke van de twee bedoeld wordt. Dat valt pas op zodra er meer dan
+        # een dag in de grafiek staat.
         lang = pd.concat([
             pd.DataFrame({"datum": verloop.index, "waarde": verloop["portefeuille_eur"],
                           "reeks": "StockWaakhond"}),
             pd.DataFrame({"datum": verloop.index, "waarde": verloop["spy_eur"],
                           "reeks": "SPY"}),
-        ])
+        ]).reset_index(drop=True)
         schaal = alt.Scale(domain=["StockWaakhond", "SPY"], range=[KLEUR_SW, KLEUR_SPY])
 
+        # Bij weinig dagen zet Altair uit zichzelf meerdere streepjes binnen
+        # dezelfde dag, en dan staat er acht keer "06/10" onder de grafiek.
+        # Een streepje per dag is dan het enige dat klopt.
+        as_datum = alt.Axis(format="%d/%m", grid=False)
+        if len(verloop) <= 10:
+            as_datum = alt.Axis(format="%d/%m", grid=False,
+                                tickCount={"interval": "day", "step": 1})
+
         lijnen = alt.Chart(lang).mark_line(strokeWidth=2).encode(
-            x=alt.X("datum:T", title=None, axis=alt.Axis(format="%d/%m", grid=False)),
+            x=alt.X("datum:T", title=None, axis=as_datum),
             y=alt.Y("waarde:Q", title="waarde in euro", scale=alt.Scale(zero=False),
                     axis=alt.Axis(format=",.0f")),
             color=alt.Color("reeks:N", title=None, scale=schaal,
@@ -458,6 +529,13 @@ if uitvoering is not None:
             "Allebei gestart met €1.000 op dezelfde dag, met dezelfde "
             "transactiekost en dezelfde wisselkoers. Zo meet je het verschil "
             "tussen de twee beleggingen, en niet tussen twee rekenwijzen."
+            + ("  \nEr is één keer €1.000 ingelegd. Bij een nieuwe selectie "
+               "wordt die portefeuille herverdeeld; er komt nooit geld bij. "
+               "SPY blijft gewoon liggen en betaalt dus ook niets voor die "
+               "wissels."
+               if len(uitvoeringen) > 1 else "")
+            + "  \nDividend is bij geen van de twee meegerekend: dit zijn de "
+              "koersen."
             + ("  \nDe slotkoersen in deze grafiek liggen vast in onze eigen "
                "database en veranderen niet meer achteraf."
                if koersbron == "eigen database" else
@@ -490,6 +568,14 @@ if uitvoering is not None:
 # ------------------------------------------------------------------- posities
 if uitvoering is not None and waardering is not None:
     st.header("De vijf posities")
+
+    if len(uitvoeringen) > 1:
+        st.caption(
+            f"Gekocht bij de wissel van "
+            f"{datum_nl(uitvoering['execution_date'])}. Het resultaat per "
+            f"aandeel hieronder loopt dus vanaf die dag; het totaal bovenaan "
+            f"loopt vanaf de start."
+        )
 
     rijen = []
     for p in waardering.posities:

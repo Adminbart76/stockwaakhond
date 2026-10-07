@@ -190,6 +190,12 @@ def waardeer(
     Dividend telt bij beide kanten mee: dividend_eur bij de portefeuille,
     spy_dividend_eur bij de benchmark. Beide horen met dezelfde conventie
     berekend te zijn - gebruik daarvoor dividend_reeks().
+
+    Werkt ook op een wissel uit sw/herbalans.py. Zo'n record kan contant geld
+    bij zich dragen (`cash_usd`, en `cash_usd` in het benchmarkblok). Dat is het
+    geld dat op het MOMENT VAN DAT RECORD in kas zat; dividend dat daarna is
+    uitgekeerd hoort via dividend_eur mee te komen. Anders zou hetzelfde
+    dividend twee keer meetellen.
     """
     if fx_eurusd <= 0:
         raise ValueError("De wisselkoers moet groter dan nul zijn.")
@@ -205,7 +211,7 @@ def waardeer(
 
     inleg = float(instap["start_capital_eur"])
     posities = []
-    totaal_usd = 0.0
+    totaal_usd = float(instap.get("cash_usd") or 0.0)
 
     for p in instap["positions"]:
         t = p["ticker"]
@@ -235,7 +241,9 @@ def waardeer(
         p["aandeel_pct"] = round(100.0 * p["waarde_eur"] / totaal_eur, 2) if totaal_eur else 0.0
 
     bm = instap["benchmark"]
-    spy_eur = (bm["shares"] * float(spy_koers_usd)) / fx_eurusd + spy_dividend_eur
+    spy_eur = (
+        bm["shares"] * float(spy_koers_usd) + float(bm.get("cash_usd") or 0.0)
+    ) / fx_eurusd + spy_dividend_eur
 
     resultaat = totaal_eur - inleg
     spy_resultaat = spy_eur - inleg
