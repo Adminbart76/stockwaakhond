@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 232, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 275, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -227,11 +227,48 @@ Daar kwamen op 7 oktober 2026 deze twee bij, na auditronde 5:
     tekst staat, kan een controleur een jaar later niet meer narekenen. De
     instap van 6 oktober 2026 valt erbuiten en blijft onaangeroerd.
 
+Daar kwamen op 7 oktober 2026 deze vier bij, bij de Belgische laag. Het volledige
+ontwerp staat in `audit/ONTWERP_belgische_laag_2026-10-07.md`, de fiscale regels
+met hun bron in `BELGIE.md`:
+
+27. **Er is een DERDE weergave, en ze staat los van de twee andere.** A is de
+    officiële forward-test en blijft de primaire wetenschappelijke curve, B is de
+    realistische marktcurve, C is de Belgische simulatie: dezelfde trades, met de
+    beurstaks, de brokerkosten, de wisselkosten en de Belgische belasting op
+    dividend en op winst bij verkoop. C is afgeleid en schrijft nergens iets weg -
+    net als `sw/realistisch.py` zit er geen enkele schrijfweg in `sw/belgie.py`.
+    De stappen heten `belgie-1`, `belgie-2`; leesbare namen en geen hashes, want
+    dit is geen bewijsmateriaal en het hoort er ook niet op te lijken.
+28. **Wat de broker inhoudt gaat meteen van de rekening, de belasting op winst
+    niet.** Beurstaks, brokerkosten, wisselkosten en de ingehouden belasting op
+    dividend zitten in de Belgische curve. De meerwaardebelasting staat apart,
+    per kalenderjaar, als raming. Reden: geen enkele broker houdt die per trade
+    in, dus zou de curve anders een verloop tonen dat nooit op iemands rekening
+    heeft gestaan. Het dashboard toont daarom "portefeuillewaarde" en "waarde na
+    fiscale reserve" naast elkaar.
+29. **De beurstaks wordt per order gerekend, op het bedrag van dat order.**
+    200 euro verkopen en 200 euro kopen is twee keer de taks op 200 euro. Daardoor
+    kan deze laag niet met een gemiddeld kostenpercentage werken: ze moet de
+    werkelijke orders kennen. De kosten bepalen hoeveel er te beleggen valt en de
+    orders bepalen de kosten; dat kringetje wordt doorgerekend tot het stilstaat
+    (`_los_kosten_op`). Het tarief staat per instrumenttype in de configuratie,
+    want een fonds heeft een ander tarief dan een aandeel.
+30. **SPY is in de Belgische laag geen praktijkbenchmark.** Hij blijft de maatstaf
+    van het ONDERZOEK en blijft daar onaangeroerd. Maar een Amerikaanse ETF heeft
+    voor een Europese particulier meestal geen KID (de fiche die de PRIIPs-regels
+    eisen), waardoor hij er bij veel brokers niet rechtstreeks in kan. De
+    Belgische curve laat de maatstafkolommen daarom weg; een kolom die er staat,
+    wordt vroeg of laat als benchmark gelezen. Een Belgische praktijkbenchmark
+    wordt later een UCITS-instrument; de plaats ervoor staat klaar
+    (`PraktijkBenchmark`, nu `None`) en er is er nog geen gekozen.
+
 ## Wat bewust open blijft
 
-**Belgische beurstaks.** Ordegrootte 0,35 % per richting kan bij maandelijkse
-rotatie het verschil maken tussen winst en verlies. Zit nu in geen van beide
-curves. Hoort bij de realistische tweede curve; nog niet toegevoegd.
+**Belgische beurstaks: niet meer open, maar wel in een EIGEN laag.** Sinds
+7 oktober 2026 zit 0,35 % per order in de Belgische simulatie (`sw/belgie.py`).
+In de officiële curve en in de realistische tweede curve zit ze met opzet nog
+altijd niet: die twee meten de strategie, niet de fiscaliteit van één land. Reken
+de beurstaks dus nooit alsnog in curve A of B.
 
 **Dividendbelasting is GEEN open punt meer.** De conventie is bruto (zie
 beslissing 20 hierboven). Het veld `net_per_share_usd` blijft in de tabel staan
@@ -282,6 +319,11 @@ alleen bijschrijven   doet de maandscan     leest alleen
   de herbelegging van SPY), `fx.py` (de minuutbalk van de slotbel plus het
   ECB-controlegetal; de keuze zelf is te testen zonder internet) en
   `realistisch.py` (de tweede curve, zonder enige schrijfweg).
+- Daar kwam op 7 oktober 2026 `belgie.py` bij: de derde laag, met de Belgische
+  beurstaks, de brokerkosten, de wisselkosten en de belasting op dividend en op
+  winst bij verkoop. Ook zonder enige schrijfweg. De fiscale parameters staan er
+  op één plek, met een versienaam (`BE_TAX_RULES_2026_V1`) en per parameter of
+  hij exact is, een aanname, nog te bevestigen of nog niet ingesteld.
 - `streamlit_app.py` is het dashboard. Het leest alleen, en het toont altijd de
   laatste uitvoering uit de keten — niet de uitvoering van het laatste signaal.
   Tussen een nieuw signaal en de wissel de avond erna blijft de oude
@@ -567,6 +609,48 @@ raken alleen een wissel, die er nog niet is. Reboot wel voor de volgende
 zichtbare wijziging, anders draait de app op modules van vandaag en code van
 morgen.
 
+## De Belgische laag van 7 oktober 2026
+
+Opgedragen door Bart, na auditronde 5. Een afgeleide simulatie die één vraag
+beantwoordt: wat zou een Belgische particuliere belegger overhouden als hij
+dezelfde trades werkelijk uitvoerde? Gebouwd in `sw/belgie.py`, bewaakt door
+43 tests in `tests/test_belgie.py`, zichtbaar op het dashboard onder "Wat zou je
+hier in België van overhouden?", uitgelegd in `BELGIE.md` en verantwoord in
+`audit/ONTWERP_belgische_laag_2026-10-07.md`.
+
+Wat de Belgische curve nu meerekent: de beurstaks van 0,35 % op elke aankoop en
+elke verkoop, de transactiekost van 0,15 % over wat er werkelijk verhandeld is,
+15 % Amerikaanse bronheffing op dividend gevolgd door 30 % Belgische roerende
+voorheffing op wat overblijft, en - apart, als jaarlijkse raming - 10 %
+meerwaardebelasting met FIFO, met verliesverrekening binnen hetzelfde jaar en
+een vrijgestelde eerste schijf.
+
+Bewust op nul en instelbaar: alle vier de brokerparameters en de wisselkost. Er
+is nog geen broker gekozen, dus staat er "nog niet ingesteld" op het scherm in
+plaats van een verzonnen bedrag. Wordt er later een broker ingevuld, zet dan
+`basiskost_pct` op 0 - anders wordt dezelfde kost twee keer gerekend.
+
+**Twee bedragen zijn nog niet bevestigd, en dat staat op het scherm.** De
+opdracht gaf 4.855 euro als vrijgestelde schijf voor de meerwaardebelasting;
+publieke bronnen die op 7 oktober 2026 zijn nagekeken noemen 10.000 euro per jaar
+per persoon, geïndexeerd. En 833 euro voor de dividendvrijstelling hoort bij
+inkomstenjaar 2025; voor 2026 noemen bronnen 859 euro. Beide staan erin zoals
+opgedragen, met de status "te bevestigen" in `HERKOMST`, in de tabel op het
+dashboard en in `BELGIE.md`. Zolang dat niet uitgeklaard is, kan de geraamde
+belasting te hoog staan. Een correctie hoort een nieuwe regelversie te krijgen.
+
+Zelf nagekeken, los van de opdracht: het dashboard is in twee toestanden
+gedraaid - de echte stand van vandaag en een nagebootste tweede wissel met
+koersverloop en twee dividenden - en met de ogen van een lezer bekeken. Daar
+kwamen vijf dingen uit die meteen hersteld zijn; ze staan opgesomd in het
+ontwerpdocument. Het bekendste: een vlagemoji in de titel werd door de browser
+als de letters "BE" getekend, en "-€ 0,00" stond op het scherm bij bedragen die
+afgerond nul zijn.
+
+De grens is gehaald: `app.py`, `forward_log/`, `bewijs/`, `sw/strategy.py` en
+`sql/` zijn niet aangeraakt, en de vier hashes van het signaal, de strategie, het
+universum en de instap zijn ongewijzigd, nagerekend na de wijziging.
+
 ## Wat nu open staat
 
 1. **Auditronde 5 staat uit bij ChatGPT.** Het pakket van commit `85db9fe` is
@@ -607,7 +691,22 @@ morgen.
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
    wijzigen niemand. Het e-mailadres van Barts broer is nog niet doorgegeven.
 
+4. **Twee Belgische bedragen bevestigen.** De vrijgestelde schijf van de
+   meerwaardebelasting (4.855 of 10.000 euro) en de dividendvrijstelling voor
+   inkomstenjaar 2026 (833 of 859 euro). Zie de sectie hierboven. Zolang dat
+   open staat, kan de geraamde belasting op het dashboard te hoog zijn. Wijzigen
+   gebeurt met een nieuwe regelversie naast `BE_TAX_RULES_2026_V1`, nooit met een
+   stille aanpassing van die versie.
+
+5. **Een broker kiezen, en daarna een Belgische praktijkbenchmark.** Zolang er
+   geen broker is, staan de vier kostenparameters en de wisselkost op nul en zegt
+   het dashboard dat ze nog niet ingesteld zijn. De praktijkbenchmark wordt een
+   UCITS-instrument en wordt pas gekozen als broker en instrument onderzocht
+   zijn; SPY komt daar niet voor in aanmerking (beslissing 30).
+
 Wat je er níet mee moet doen: de bevroren curve herrekenen met andere kosten,
-de officiële curve vervangen door de realistische, de scan in de webapp zetten,
-de beurstaks er zelf bij rekenen, een betaaldatum van een dividend verzinnen in
-plaats van opzoeken, of een vastgelegde uitvoering aanraken.
+de officiële curve vervangen door de realistische of door de Belgische, de scan
+in de webapp zetten, de beurstaks alsnog in curve A of B rekenen, de geraamde
+meerwaardebelasting per trade van de portefeuille aftrekken, een betaaldatum van
+een dividend verzinnen in plaats van opzoeken, of een vastgelegde uitvoering
+aanraken.

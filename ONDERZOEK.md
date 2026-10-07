@@ -29,6 +29,20 @@ Kern:
 
 Nieuwe onderzoeksinzichten mogen Strategie A niet achteraf wijzigen.
 
+### Belgische fiscale simulatie: een uitvoeringslaag, geen strategie
+
+Sinds 7 oktober 2026 staat er naast de officiële curve een Belgische simulatie
+(`sw/belgie.py`, beschreven in `BELGIE.md`): dezelfde trades, met de Belgische
+beurstaks, brokerkosten, wisselkosten en belasting op dividend en meerwaarde.
+
+Dat is **geen nieuwe beleggingsstrategie** en telt hier niet als challenger. Ze
+kiest niets, verandert niets aan de selectie, de weging of het moment van
+handelen, en krijgt dus geen strategieversie, geen eigen signaal en geen eigen
+logboek. Ze is een afgeleide weergave van Strategie A: alleen de netto-uitkomst
+voor een particulier in één land verschilt.
+
+De officiële curve blijft de primaire wetenschappelijke reeks.
+
 ## 3. Jegadeesh & Titman (1993)
 
 **Titel:** *Returns to Buying Winners and Selling Losers: Implications for Stock Market Efficiency*  

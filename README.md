@@ -82,6 +82,19 @@ Ontbreekt er een koers, dan toont het dashboard geen bedrag. Liever geen cijfer
 dan een cijfer dat eruitziet als de waarde van nu terwijl het op een oude koers
 rust.
 
+## Drie weergaven, en wat ze elk meten
+
+| | |
+|---|---|
+| de officiële forward-test | de bevroren strategie, zoals vastgelegd. Dit is de uitkomst van de proef. |
+| de realistische marktcurve | dezelfde trades, met de transactiekost over alles wat werkelijk verhandeld is |
+| de Belgische simulatie | dezelfde trades, plus de beurstaks, de brokerkosten, de wisselkosten en de Belgische belasting op dividend en op winst bij verkoop |
+
+De eerste blijft de officiële reeks en wordt nooit herrekend. De andere twee
+staan ernaast en worden elke keer opnieuw uit de vastgelegde gegevens berekend;
+ze kunnen niets wijzigen. De Belgische simulatie is indicatief en staat uitgelegd
+in `BELGIE.md`: ze is geen fiscale aangifte en geen beleggingsadvies.
+
 ## Gebruiken
 
 Dubbelklik op `BEKIJK DASHBOARD.bat` om het dashboard te openen.
@@ -96,7 +109,7 @@ python -m streamlit run streamlit_app.py
 Controleren of alles nog klopt:
 
 ```
-python -m pytest                     # 232 wachters op formule, logboek en rekenwerk
+python -m pytest                     # 275 wachters op formule, logboek en rekenwerk
 python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
 python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
 ```
@@ -111,6 +124,9 @@ python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bes
 | `sql/` | wat er in Supabase draait, in deze volgorde: `01_schema.sql`, `02_hardening.sql`, `03_smalle_deur.sql`, `04_dividend_en_fx.sql`, `05_fx_bewijs_verplicht.sql` |
 | `scripts/` | onderhoud en controle |
 | `tests/` | de wachters |
+
+`BELGIE.md` legt uit welke Belgische regels de simulatie gebruikt, waar ze
+vandaan komen, en wat exact is en wat nog een aanname.
 
 `CLAUDE.md` bevat de stand van zaken, de genomen beslissingen en wat er nog open
 staat.

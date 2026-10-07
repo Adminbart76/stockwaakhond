@@ -14,6 +14,7 @@ __all__ = [
     "dividend",        # bruto, ex-datum voor het recht, betaaldatum voor het geld
     "fx",              # de wisselkoers van de uitvoeringsdag, met controlegetal
     "realistisch",     # de tweede curve: kosten over wat er echt verhandeld is
+    "belgie",          # de derde laag: beurstaks, brokerkosten en Belgische belasting
     "prices",          # koersen ophalen bij Yahoo
     "supabase_io",     # praten met de database
 ]

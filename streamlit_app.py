@@ -21,6 +21,7 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from sw import belgie as be
 from sw import dividend as div
 from sw import herbalans as hb
 from sw import ledger as led
@@ -68,6 +69,10 @@ def _komma(tekst: str) -> str:
 
 
 def eur(bedrag: float) -> str:
+    # Afgerond op twee cijfers is een bedrag van een miljoenste gewoon nul. Dan
+    # hoort er geen minteken voor te staan: "€ -0,00" leest als een fout.
+    if round(bedrag, 2) == 0:
+        bedrag = 0.0
     return "€ " + _komma(f"{bedrag:,.2f}")
 
 
@@ -77,6 +82,8 @@ def eur_verschil(bedrag: float) -> str:
     Het teken moet vooraan staan, anders leest Streamlit het bedrag als
     positief en zet het een groene pijl omhoog boven een verlies.
     """
+    if round(bedrag, 2) == 0:
+        bedrag = 0.0
     teken = "-" if bedrag < 0 else "+"
     return teken + "€ " + _komma(f"{abs(bedrag):,.2f}")
 
@@ -730,6 +737,300 @@ if uitvoering is not None and len(uitvoeringen) > 1 and len(verloop) >= 2:
             "Zolang er nog niet gewisseld is, zijn de twee berekeningen gelijk: "
             "bij de instap werd er alleen gekocht."
         )
+
+
+# ------------------------------------------------- de derde laag: Belgie
+# Dezelfde trades, met de Belgische beurstaks, de brokerkosten, de wisselkosten
+# en de Belgische belasting op dividend en op winst bij verkoop erbij. Dit is een
+# AFGELEIDE simulatie: ze verandert niets aan de twee reeksen hierboven en komt
+# nergens in het bewijsmateriaal terecht. Zie sw/belgie.py en BELGIE.md.
+if uitvoering is not None and waardering is not None:
+    # Bewust zonder vlagemoji: een deel van de browsers tekent 🇧🇪 niet als
+    # vlag maar als de twee letters "BE", en dan staat er "BE Wat zou je hier
+    # in België..." - dat leest als een typfout.
+    st.header("Wat zou je hier in België van overhouden?")
+    st.info(
+        "Indicatieve simulatie voor een Belgische particuliere belegger. "
+        "Geen fiscale aangifte of persoonlijk beleggingsadvies."
+    )
+
+    be_keten, be_waarde, be_verloop, be_fout = None, None, pd.DataFrame(), None
+    try:
+        be_dividenden = gegevens.get("dividenden") or []
+        be_keten = be.belgische_keten(uitvoeringen, be_dividenden, fx_reeks)
+        be_waarde = be.waardeer_belgisch(
+            be_keten, koersen_nu, fx_nu,
+            officiele_waarde_eur=waardering.totaal_eur)
+        if not dagkoersen.empty:
+            be_verloop = be.bouw_verloop_belgie(
+                uitvoeringen, dagkoersen, fx_reeks, be_dividenden,
+                resultaat=be_keten)
+    except Exception as fout:
+        be_fout = str(fout)
+
+    if be_fout or be_waarde is None:
+        st.warning(
+            "Deze simulatie kon nu niet berekend worden. De cijfers hierboven "
+            "kloppen onverminderd."
+            + ("\n\nTechnische melding: " + be_fout if be_fout else "")
+        )
+    else:
+        # De waarde van de realistische reeks op hetzelfde moment, zodat de drie
+        # bedragen naast elkaar van dezelfde koersen komen.
+        papier_nu = None
+        try:
+            papier_stappen = rl.papieren_keten(uitvoeringen)
+            if papier_stappen:
+                laatste_papier = papier_stappen[-1]
+                papier_div = div.portefeuille_dividenden(
+                    papier_stappen, gegevens.get("dividenden") or [])
+                usd = float(laatste_papier.get("cash_usd") or 0.0) + div.som(
+                    div.betaald_tussen(
+                        papier_div, laatste_papier["execution_date"], vandaag))
+                for p in laatste_papier["positions"]:
+                    usd += float(p["shares"]) * float(koersen_nu[p["ticker"]])
+                papier_nu = usd / fx_nu
+        except Exception:
+            papier_nu = None
+
+        k1, k2, k3, k4 = st.columns(4)
+        k1.metric("Ingelegd", eur(be_waarde["inleg_eur"]),
+                  help="Het virtuele startbedrag. Er is nooit echt geld belegd.")
+        k2.metric("Officiële reeks", eur(waardering.totaal_eur),
+                  help="De vastgelegde forward-test. Die blijft de officiële "
+                       "uitkomst en verandert hier niet door.")
+        if papier_nu is not None:
+            # Zolang er nog niet gewisseld is, zijn de twee berekeningen
+            # gelijk. Dan hoort er geen verschil van nul onder te staan.
+            papier_delta = papier_nu - waardering.totaal_eur
+            k3.metric("Met de volle kosten", eur(papier_nu),
+                      delta=(eur_verschil(papier_delta)
+                             if round(papier_delta, 2) else None),
+                      help="Dezelfde trades, met de transactiekost over alles "
+                           "wat er werkelijk verhandeld is.")
+        else:
+            k3.metric("Met de volle kosten", "—")
+        k4.metric(
+            "Op een Belgische rekening", eur(be_waarde["portefeuille_eur"]),
+            delta=f"{eur_verschil(be_waarde['verschil_officieel_eur'])}  "
+                  f"({pct(be_waarde['verschil_officieel_pct'])})",
+            help="Hier zijn de beurstaks, de brokerkosten, de wisselkosten en "
+                 "de ingehouden belasting op dividend al af. De belasting op "
+                 "winst bij verkoop staat apart, hieronder.")
+
+        verschil = float(be_waarde["verschil_officieel_eur"])
+        if abs(verschil) < 0.005:
+            kop = "Dat komt precies uit op de officiële reeks"
+        else:
+            kop = (f"Dat is {eur(abs(verschil))} "
+                   f"{'minder' if verschil < 0 else 'meer'} dan de officiële reeks")
+        st.markdown(
+            f"### {kop}\n"
+            "Dat verschil zijn de kosten en belastingen die een Belgische "
+            "belegger wel betaalt en de forward-test niet meerekent. "
+            "**De officiële reeks hierboven verandert hier niet door** — dit is "
+            "een aparte berekening ernaast, geen correctie."
+        )
+
+        # ---- wat er meteen van de rekening gaat
+        st.subheader("Wat gaat er meteen van de rekening?")
+        niet_ingesteld = "nog niet ingesteld"
+        kostenrijen = [
+            {"Wat": "Beurstaks (TOB), 0,35 % op elke aankoop én elke verkoop",
+             "Bedrag": eur(be_waarde["tob_eur"])},
+            {"Wat": "Brokerkosten",
+             "Bedrag": eur(be_waarde["broker_eur"])
+                       if be.REGELS_NU.broker_ingesteld else niet_ingesteld},
+            {"Wat": "Wisselkosten van de broker",
+             "Bedrag": eur(be_waarde["fx_kosten_eur"])
+                       if be.REGELS_NU.fx_kosten_ingesteld else niet_ingesteld},
+            {"Wat": "Transactiekost van 0,15 % over wat er verhandeld is "
+                    "(staat voorlopig op de plaats van de brokerkosten)",
+             "Bedrag": eur(be_waarde["basiskost_eur"])},
+            {"Wat": "Belasting die bij een dividend wordt ingehouden",
+             "Bedrag": eur(be_waarde["dividendbelasting_eur"])},
+        ]
+        st.dataframe(pd.DataFrame(kostenrijen), hide_index=True, width="stretch")
+        st.caption(
+            f"Samen {eur(be_waarde['transactiekosten_eur'] + be_waarde['dividendbelasting_eur'])}. "
+            "Er is nog geen broker gekozen, dus de brokerkosten en de "
+            "wisselkosten staan nog op niets. Ze komen er dus nog bij."
+        )
+
+        # ---- het dividend
+        if be_waarde["dividend_bruto_eur"]:
+            d1, d2, d3 = st.columns(3)
+            d1.metric("Dividend bruto", eur(be_waarde["dividend_bruto_eur"]),
+                      help="Het volledige uitgekeerde bedrag, voor belasting. "
+                           "Dit is wat de officiële reeks meerekent.")
+            d2.metric("Dividend netto ontvangen",
+                      eur(be_waarde["dividend_netto_eur"]),
+                      help="Wat er na de Amerikaanse en de Belgische heffing "
+                           "werkelijk op de rekening komt.")
+            d3.metric("Nog terug te vragen",
+                      eur(be_waarde["dividend_terug_te_vorderen_eur"]),
+                      help="De vrijstelling werkt niet aan de bron. Je vraagt "
+                           "dit bedrag terug met je belastingaangifte.")
+            st.caption(
+                "Op een Amerikaans dividend houden de Verenigde Staten eerst "
+                f"{getal(be.REGELS_NU.foreign_withholding_pct['US'], 0)} % in. "
+                f"Op wat overblijft komt {getal(be.REGELS_NU.roerende_voorheffing_pct, 0)} % "
+                "Belgische roerende voorheffing. Van 100 euro bruto blijft er zo "
+                "ongeveer 59,50 euro over. Het bedrag dat je nog kunt "
+                "terugvragen zit niet in de cijfers op deze pagina: dat geld "
+                "komt pas na je aangifte."
+            )
+        else:
+            st.caption(
+                "Er is nog geen dividend uitgekeerd. Zodra dat gebeurt, houden "
+                "de Verenigde Staten eerst een deel in en komt er daarna "
+                "Belgische roerende voorheffing op wat overblijft."
+            )
+
+        # ---- de fiscale raming
+        st.subheader("Wat komt er later nog bij: de belasting op je winst")
+        st.markdown(
+            "Deze belasting gaat **niet** per verkoop van je rekening. Geen "
+            "enkele broker houdt ze in: je geeft ze zelf aan en betaalt ze "
+            "achteraf. Daarom staat ze hier apart, als een bedrag dat je beter "
+            "aan de kant houdt."
+        )
+
+        jaren = be_keten["meerwaarde_per_jaar"]
+        if jaren:
+            st.dataframe(pd.DataFrame([{
+                "Jaar": b["jaar"],
+                "Winst bij verkoop": eur(b["meerwaarden_eur"]),
+                "Verlies bij verkoop": eur(b["minderwaarden_eur"]),
+                "Winst min verlies": eur(b["netto_gerealiseerd_eur"]),
+                "Vrijgesteld": eur(b["gebruikte_vrijstelling_eur"]),
+                "Belastbaar": eur(b["belastbare_basis_eur"]),
+                f"Belasting ({getal(b['tarief_pct'], 0)} %)": eur(b["belasting_eur"]),
+            } for b in jaren.values()]), hide_index=True, width="stretch")
+        else:
+            st.caption(
+                "Er is nog niets verkocht, dus er is nog geen winst "
+                "gerealiseerd en nog geen belasting te ramen."
+            )
+
+        f1, f2, f3 = st.columns(3)
+        f1.metric("Portefeuillewaarde", eur(be_waarde["portefeuille_eur"]),
+                  help="Wat er op de rekening staat.")
+        f2.metric("Geschatte belasting op je winst",
+                  eur(be_waarde["meerwaardebelasting_eur"]),
+                  help="Een raming over de winst die je al verkocht hebt, per "
+                       "kalenderjaar.")
+        f3.metric("Waarde na fiscale reserve", eur(be_waarde["netto_eur"]),
+                  help="De portefeuillewaarde min die geschatte belasting. Dat "
+                       "bedrag gaat niet van je rekening: het is wat je beter "
+                       "opzijhoudt tot je aangifte.")
+
+        st.caption(
+            f"Op de winst die nog in de portefeuille zit "
+            f"({eur(be_waarde['latente_meerwaarde_eur'])}) staat nog geen "
+            "belasting. Die ontstaat pas op de dag dat er verkocht wordt. "
+            "De eerste € "
+            + _komma(f"{be.REGELS_NU.meerwaarde_vrijstelling_eur:,.0f}")
+            + " winst per jaar is vrijgesteld, en een verlies van hetzelfde "
+            "jaar gaat eerst van de winst af."
+        )
+        if be_waarde["meerwaardebelasting_eur"]:
+            st.caption(
+                "Met die reserve erbij kom je "
+                + eur(abs(be_waarde["verschil_officieel_netto_eur"]))
+                + (" lager uit dan de officiële reeks."
+                   if be_waarde["verschil_officieel_netto_eur"] < 0
+                   else " hoger uit dan de officiële reeks.")
+            )
+
+        # ---- het verloop
+        if len(be_verloop) >= 2 and len(verloop) >= 2:
+            lang3 = pd.concat([
+                pd.DataFrame({"datum": verloop.index,
+                              "waarde": verloop["portefeuille_eur"],
+                              "reeks": "Officiële reeks"}),
+                pd.DataFrame({"datum": be_verloop.index,
+                              "waarde": be_verloop["portefeuille_eur"],
+                              "reeks": "Op een Belgische rekening"}),
+            ]).reset_index(drop=True)
+            namen3 = ["Officiële reeks", "Op een Belgische rekening"]
+            schaal3 = alt.Scale(domain=namen3, range=[KLEUR_SW, "#374151"])
+
+            st.altair_chart(
+                alt.Chart(lang3).mark_line(strokeWidth=2).encode(
+                    x=alt.X("datum:T", title=None,
+                            axis=alt.Axis(format="%d/%m", grid=False)),
+                    y=alt.Y("waarde:Q", title="waarde in euro",
+                            scale=alt.Scale(zero=False),
+                            axis=alt.Axis(format=",.0f")),
+                    color=alt.Color("reeks:N", title=None, scale=schaal3,
+                                    legend=alt.Legend(orient="top",
+                                                      direction="horizontal")),
+                    # De officiële reeks is de doorlopende lijn. De Belgische
+                    # simulatie is gestippeld: zo is in één oogopslag te zien
+                    # welke van de twee de vastgelegde reeks is.
+                    strokeDash=alt.StrokeDash(
+                        "reeks:N", legend=None,
+                        scale=alt.Scale(domain=namen3, range=[[1, 0], [6, 3]])),
+                    tooltip=[
+                        alt.Tooltip("datum:T", title="datum", format="%d/%m/%Y"),
+                        alt.Tooltip("reeks:N", title=""),
+                        alt.Tooltip("waarde:Q", title="waarde in euro",
+                                    format=",.2f"),
+                    ],
+                ).properties(height=280),
+                use_container_width=True,
+            )
+            st.caption(
+                "De gestippelde lijn is de Belgische rekening: de beurstaks en "
+                "de ingehouden belasting op dividend zijn eraf. De belasting op "
+                "winst bij verkoop zit er niet in — die gaat niet per dag van je "
+                "rekening. In deze lijn staat geen maatstaf: SPY is de maatstaf "
+                "van het onderzoek, en voor een Belgische particulier meestal "
+                "niet rechtstreeks te koop."
+            )
+
+        with st.expander("Welke Belgische regels zitten hierin?"):
+            st.markdown(
+                f"**Regelversie**  \n`{be_keten['regels']}`\n\n"
+                "Deze versienaam hoort bij de tarieven van 2026. Verandert de "
+                "wet, dan komt er een nieuwe versie naast; zo verschuiven de "
+                "cijfers van 2026 nooit achteraf."
+            )
+            st.dataframe(
+                pd.DataFrame([{
+                    "Regel": blok["naam"],
+                    "Waarde": blok["waarde"],
+                    "Status": blok["status"],
+                    "Bron": blok["bron"],
+                } for blok in be.HERKOMST.values()]),
+                hide_index=True, width="stretch",
+                height=36 * (len(be.HERKOMST) + 1) + 4,
+                column_config={
+                    "Regel": st.column_config.TextColumn(width="medium"),
+                    "Waarde": st.column_config.TextColumn(width="medium"),
+                    "Status": st.column_config.TextColumn(width="small"),
+                    "Bron": st.column_config.TextColumn(width="medium"),
+                })
+            nagekeken = sorted({b["gecontroleerd_op"] for b in be.HERKOMST.values()})
+            st.caption(
+                "Nagekeken op "
+                + " en ".join(datum_nl(d, met_dag=False) for d in nagekeken) + "."
+            )
+            st.markdown(
+                "- **exact** betekent: een tarief dat vastligt in de wet.\n"
+                "- **aanname** betekent: een keuze die van de broker of van je "
+                "persoonlijke situatie afhangt.\n"
+                "- **te bevestigen** betekent: dit bedrag moet nog nagekeken "
+                "worden bij een officiële bron. Zolang dat niet gebeurd is, "
+                "kan het cijfer eronder schuiven.\n"
+                "- **nog niet ingesteld** betekent: hier staat nog niets, dus "
+                "deze kost komt er nog bij.\n\n"
+                "De volledige uitleg per regel staat in `BELGIE.md`. Wat hier "
+                "niet in zit: de beurstaks op andere soorten producten, en een "
+                "Belgische praktijkbenchmark — dat instrument is nog niet "
+                "gekozen."
+            )
 
 
 # ------------------------------------------------------------------- posities
