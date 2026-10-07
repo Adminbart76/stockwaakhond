@@ -560,19 +560,31 @@ wijziging.
 gaf diezelfde dag 61 van 61 goed met `deur_versie 5`; de volledige uitvoer staat
 in `audit/aanvalstest_2026-10-07_ronde5.txt`.
 
+Het dashboard is na deze twee pushes zelf bekeken en was intact: geen
+foutmelding, de drie controles groen. Het is niet opnieuw opgestart, en dat hoeft
+hier ook niet - `streamlit_app.py` is niet gewijzigd en de wijzigingen in `sw/`
+raken alleen een wissel, die er nog niet is. Reboot wel voor de volgende
+zichtbare wijziging, anders draait de app op modules van vandaag en code van
+morgen.
+
 ## Wat nu open staat
 
-1. **Auditronde 5 is nog niet voorgelegd.** De vraag staat klaar in
-   `audit/VRAAG_2026-10-07_ronde5.md` en gaat over de twee correcties van ronde
-   4 (het SPY-dividend op dezelfde ex-datum, en het verplichte
-   wisselkoersbewijs). Bouw het pakket met
-   `python scripts/maak_auditpakket.py` en leg dat voor.
+1. **Auditronde 5 staat uit bij ChatGPT.** Het pakket van commit `85db9fe` is
+   op 7 oktober 2026 voorgelegd; het antwoord is nog niet binnen. **Vraag het op
+   voor je iets anders doet.** De vraag zelf staat in
+   `audit/VRAAG_2026-10-07_ronde5.md` en gaat alleen over de twee correcties
+   die uit ronde 4 kwamen: het SPY-dividend op dezelfde ex-datum, en het
+   verplichte wisselkoersbewijs. Ze zegt er expliciet bij wat er al vastligt en
+   dus niet opnieuw ter discussie staat.
 
    Behandel elke bevinding als in ronde 1 tot en met 5: eerst narekenen of ze
    klopt, dan pas bouwen, nooit het bestaande bewijs aanraken, en een nieuwe
    ronde krijgt een eigen `audit/VRAAG_*.md` in plaats van een wijziging van de
-   vorige. Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven; dat
-   is geen blokkade meer, want ronde 4 keek dezelfde code na.
+   vorige. Komt er niets meer uit, dan is dit punt gewoon klaar; dat is dan een
+   regel in dit document, geen nieuw bestand.
+
+   Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven. Dat is geen
+   blokkade: ronde 4 keek dezelfde code na en ronde 5 bouwt daarop verder.
 
 2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
