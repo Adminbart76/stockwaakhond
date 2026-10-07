@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 275, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 279, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -614,7 +614,7 @@ morgen.
 Opgedragen door Bart, na auditronde 5. Een afgeleide simulatie die één vraag
 beantwoordt: wat zou een Belgische particuliere belegger overhouden als hij
 dezelfde trades werkelijk uitvoerde? Gebouwd in `sw/belgie.py`, bewaakt door
-43 tests in `tests/test_belgie.py`, zichtbaar op het dashboard onder "Wat zou je
+47 tests in `tests/test_belgie.py`, zichtbaar op het dashboard onder "Wat zou je
 hier in België van overhouden?", uitgelegd in `BELGIE.md` en verantwoord in
 `audit/ONTWERP_belgische_laag_2026-10-07.md`.
 

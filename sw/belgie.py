@@ -1167,8 +1167,14 @@ def belgische_keten(
         # Een aandeel waarvoor er geen order is, blijft staan waar het staat en
         # komt dus niet precies op zijn doelbedrag. Dat verschil is per aandeel
         # kleiner dan een cent (dat is immers de drempel) en komt hier als
-        # contant geld terug. Meer dan die marge hoort niet te kunnen.
-        marge_usd = (len(uit["orders"]) + 1) * MINIMUM_ORDER_EUR * fx_rate
+        # contant geld terug.
+        #
+        # De marge telt alleen de aandelen die GEEN order kregen, plus een cent
+        # voor het afronden. Zou ze over alle orders gerekend worden, dan zou ze
+        # bij een volledige wissel ruim genoeg zijn om een echte rekenfout van
+        # tien cent te verbergen.
+        overgeslagen = len(uit["orders"]) - len(uit["actief"])
+        marge_usd = (overgeslagen + 1) * MINIMUM_ORDER_EUR * fx_rate
         if contant_usd < -marge_usd:
             raise ValueError(
                 "De Belgische wissel zou meer uitgeven dan er is "

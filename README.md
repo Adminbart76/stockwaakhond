@@ -109,7 +109,7 @@ python -m streamlit run streamlit_app.py
 Controleren of alles nog klopt:
 
 ```
-python -m pytest                     # 275 wachters op formule, logboek en rekenwerk
+python -m pytest                     # 279 wachters op formule, logboek en rekenwerk
 python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
 python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
 ```

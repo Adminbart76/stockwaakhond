@@ -306,6 +306,93 @@ def test_winst_en_verlies_in_hetzelfde_jaar_gaan_tegen_elkaar_af(instap):
     )
 
 
+def test_fifo_over_twee_pakketjes_binnen_de_keten(instap):
+    """Een aandeel blijft staan, wordt bijgekocht, en gaat er later uit.
+
+    Dan liggen er twee pakketjes met een verschillende prijs, en moet de
+    verkoop ze allebei raken - het oudste eerst. Dat is het geval waarin FIFO
+    pas echt iets doet.
+    """
+    goedkoper = dict(KOERS)
+    goedkoper["A"] = 50.0                       # A halveert, dus wordt bijgekocht
+    eerste = wissel_na(instap, "2026-11-04", ["A", "V", "W", "X", "Y"], goedkoper)
+
+    duurder = dict(KOERS)
+    duurder["A"] = 150.0                        # en gaat er daarna uit, hoger
+    tweede = wissel_na(eerste, "2026-12-02", ANDERE_VIJF, duurder, nummer=3)
+
+    uit = be.belgische_keten([instap, eerste, tweede])
+    verkopen_a = [v for v in uit["verkopen"]
+                  if v["ticker"] == "A" and v["verkoop_datum"] == "2026-12-02"]
+
+    assert len(verkopen_a) == 2, "De verkoop raakt allebei de pakketjes."
+    assert [v["koop_datum"] for v in verkopen_a] == ["2026-10-06", "2026-11-04"], (
+        "Het oudste pakketje gaat eerst."
+    )
+    assert verkopen_a[0]["kostprijs_eur"] > verkopen_a[1]["kostprijs_eur"], (
+        "Het eerste pakketje is tegen 100 dollar gekocht, het tweede tegen 50."
+    )
+    assert all(v["resultaat_eur"] > 0 for v in verkopen_a)
+    assert verkopen_a[1]["resultaat_eur"] > verkopen_a[0]["resultaat_eur"], (
+        "Het goedkoop gekochte pakketje levert de grootste winst op."
+    )
+
+
+def test_een_verlies_van_het_ene_jaar_verrekent_niet_met_winst_van_het_andere(instap):
+    """Een wissel in december en een in januari, met winst en verlies."""
+    hoger = {t: 130.0 for t in VIJF}
+    hoger.update({t: 100.0 for t in ANDERE_VIJF})
+    hoger["SPY"] = 500.0
+    december = wissel_na(instap, "2026-12-02", ANDERE_VIJF, hoger)
+
+    lager = dict(KOERS)
+    lager.update({t: 70.0 for t in ANDERE_VIJF})
+    januari = wissel_na(december, "2027-01-05", VIJF, lager, nummer=3)
+
+    jaren = be.belgische_keten([instap, december, januari])["meerwaarde_per_jaar"]
+
+    assert sorted(jaren) == [2026, 2027]
+    assert jaren[2026]["meerwaarden_eur"] > 0
+    assert jaren[2026]["minderwaarden_eur"] == pytest.approx(0.0)
+    assert jaren[2027]["minderwaarden_eur"] > 0
+    assert jaren[2027]["meerwaarden_eur"] == pytest.approx(0.0)
+    assert jaren[2026]["netto_gerealiseerd_eur"] > 0, (
+        "Het verlies van 2027 mag de winst van 2026 niet verlagen."
+    )
+    assert jaren[2027]["belasting_eur"] == pytest.approx(0.0)
+    assert jaren[2027]["gebruikte_vrijstelling_eur"] == pytest.approx(0.0), (
+        "Een verliesjaar gebruikt geen vrijstelling."
+    )
+
+
+def test_dividendgeld_dat_meebelegd_wordt_betaalt_maar_een_keer_beurstaks(instap):
+    """Contant dividend gaat in de koopkant van de wissel, en nergens anders.
+
+    Zou het ook aan de verkoopkant meegerekend worden, dan betaalt hetzelfde
+    geld twee keer beurstaks.
+    """
+    dividenden = [{
+        "ticker": "A", "ex_date": "2026-10-20", "pay_date": "2026-10-30",
+        "gross_per_share_usd": 4.0, "source": "test",
+    }]
+    wissel = wissel_na(instap, "2026-11-04", ANDERE_VIJF, KOERS)
+    uit = be.belgische_keten([instap, wissel], dividenden=dividenden)
+
+    contant_usd = float(uit["dividenden"][0]["netto_usd"])
+    assert contant_usd > 0
+
+    van_de_wissel = [o for o in uit["orders"] if o["datum"] == "2026-11-04"]
+    verkocht = sum(o["bedrag_usd"] for o in van_de_wissel if o["kant"] == "verkoop")
+    gekocht = sum(o["bedrag_usd"] for o in van_de_wissel if o["kant"] == "koop")
+    kosten_usd = sum(o["totaal_eur"] for o in van_de_wissel) * FX
+
+    assert gekocht == pytest.approx(verkocht + contant_usd - kosten_usd, abs=1e-4), (
+        "Het dividendgeld zit alleen in de koopkant."
+    )
+    taks = sum(o["tob_eur"] for o in van_de_wissel)
+    assert taks == pytest.approx((verkocht + gekocht) / FX * 0.0035, abs=1e-6)
+
+
 # ============================= de meerwaardebelasting los, met echte bedragen
 def test_de_vrijstelling_van_4855_euro_wordt_eerst_opgebruikt():
     verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 4000.0}]
@@ -647,6 +734,26 @@ def test_de_belgische_keten_is_elke_keer_hetzelfde(instap):
     assert een["orders"] == twee["orders"]
     assert een["verkopen"] == twee["verkopen"]
     assert een["stappen"] == twee["stappen"]
+
+
+def test_de_marge_op_het_geld_is_zo_strak_als_ze_kan_zijn(instap):
+    """Bij een volledige wissel krijgt elk aandeel een order.
+
+    Dan is er niets overgeslagen, en hoort de marge op het geld niet meer te
+    zijn dan een cent voor het afronden. Een ruimere marge zou een echte
+    rekenfout van tien cent kunnen verbergen.
+    """
+    wissel = wissel_na(instap, "2026-11-04", ANDERE_VIJF, KOERS)
+    uit = be.belgische_keten([instap, wissel])
+
+    stap = uit["stappen"][-1]
+    waarde_usd = sum(p["shares"] * KOERS[p["ticker"]] for p in stap["positions"])
+    kosten_usd = uit["kosten_totaal"]["totaal_eur"] * FX
+
+    assert float(stap["cash_usd"]) == pytest.approx(0.0, abs=1e-6), (
+        "Alles wat niet naar de kosten gaat, zit in de aandelen."
+    )
+    assert waarde_usd + kosten_usd == pytest.approx(1000.0 * FX, abs=1e-4)
 
 
 def test_de_belgische_stappen_dragen_geen_controlegetal(instap):

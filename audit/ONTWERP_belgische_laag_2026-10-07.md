@@ -199,7 +199,7 @@ nabootsen zonder de echte regels aan te raken.
 | | |
 |---|---|
 | `sw/belgie.py` | de hele laag, zonder internet en zonder database |
-| `tests/test_belgie.py` | 43 wachters |
+| `tests/test_belgie.py` | 47 wachters |
 | `streamlit_app.py` | het blok "Wat zou je hier in België van overhouden?" |
 | `BELGIE.md` | de fiscale regels, hun bron, en wat exact is en wat niet |
 | `sw/__init__.py` | `belgie` toegevoegd aan de opsomming |
