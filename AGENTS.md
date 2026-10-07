@@ -651,24 +651,46 @@ De grens is gehaald: `app.py`, `forward_log/`, `bewijs/`, `sw/strategy.py` en
 `sql/` zijn niet aangeraakt, en de vier hashes van het signaal, de strategie, het
 universum en de instap zijn ongewijzigd, nagerekend na de wijziging.
 
+De vraag voor de controleur staat in `audit/VRAAG_2026-10-07_ronde6.md` en wijst
+zelf de drie zwakste plekken aan: het lusje dat de kosten zoekt
+(`_los_kosten_op` in `sw/belgie.py`), de twee bedragen die publieke bronnen
+tegenspreken, en het feit dat er nog geen wissel en geen dividend is - waardoor
+alles behalve de instap alleen in de tests bestaat en niet op echte gegevens
+gedraaid heeft. Bij het schrijven van die vraag bleken drie testgevallen te
+ontbreken; ze zijn toegevoegd en slaagden meteen: FIFO over twee pakketjes binnen
+de keten, een jaargrens waarbij het verlies van het ene jaar de winst van het
+andere niet verlaagt, en dividendgeld dat maar een keer beurstaks betaalt.
+Tegelijk is de marge waarmee de laag controleert of er geen geld verdwijnt
+aangescherpt: ze telt nu alleen de aandelen die geen order kregen, want over alle
+orders gerekend was ze bij een volledige wissel ruim genoeg om een rekenfout van
+tien cent te verbergen.
+
 ## Wat nu open staat
 
-1. **Auditronde 5 staat uit bij ChatGPT.** Het pakket van commit `85db9fe` is
-   op 7 oktober 2026 voorgelegd; het antwoord is nog niet binnen. **Vraag het op
-   voor je iets anders doet.** De vraag zelf staat in
-   `audit/VRAAG_2026-10-07_ronde5.md` en gaat alleen over de twee correcties
-   die uit ronde 4 kwamen: het SPY-dividend op dezelfde ex-datum, en het
-   verplichte wisselkoersbewijs. Ze zegt er expliciet bij wat er al vastligt en
-   dus niet opnieuw ter discussie staat.
+1. **Er is een antwoord van ChatGPT binnen dat nog niet verwerkt is.** Bart
+   gaf dat op 8 oktober 2026 door; de tekst zelf staat nergens in dit project.
+   **Vraag hem die te plakken voor je iets anders doet**, en vraag erbij op welke
+   ronde ze slaat - dat is niet vastgelegd, en er staan er twee open:
 
-   Behandel elke bevinding als in ronde 1 tot en met 5: eerst narekenen of ze
+   | ronde | voorgelegd | waarover | de vraag |
+   |---|---|---|---|
+   | 5 | 7 oktober 2026, commit `85db9fe` | het SPY-dividend op de ex-datum en het verplichte wisselkoersbewijs | `audit/VRAAG_2026-10-07_ronde5.md` |
+   | 6 | nacht van 7 op 8 oktober 2026, commit `a60c2a9` | de Belgische laag | `audit/VRAAG_2026-10-07_ronde6.md` |
+
+   Behandel elke bevinding als in ronde 1 tot en met 6: eerst narekenen of ze
    klopt, dan pas bouwen, nooit het bestaande bewijs aanraken, en een nieuwe
    ronde krijgt een eigen `audit/VRAAG_*.md` in plaats van een wijziging van de
-   vorige. Komt er niets meer uit, dan is dit punt gewoon klaar; dat is dan een
-   regel in dit document, geen nieuw bestand.
+   vorige. Komt er niets meer uit, dan is dat gewoon een regel in dit document,
+   geen nieuw bestand.
+
+   Reken erop dat de vrijgestelde schijf van de meerwaardebelasting als eerste
+   bevinding terugkomt. Dat is dan geen ontdekking maar een bevestiging: ronde 6
+   zegt zelf dat 4.855 euro publieke bronnen tegenspreekt (zie punt 4). Een
+   correctie hoort in een nieuwe regelversie naast `BE_TAX_RULES_2026_V1`
+   terecht te komen, niet in een stille aanpassing van die versie.
 
    Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven. Dat is geen
-   blokkade: ronde 4 keek dezelfde code na en ronde 5 bouwt daarop verder.
+   blokkade: ronde 4 keek dezelfde code na, en 5 en 6 bouwen daarop verder.
 
 2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
