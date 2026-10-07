@@ -492,14 +492,18 @@ tweede berekening doorlopend was.
 
 ## Wat nu open staat
 
-1. **Auditronde 4 ligt klaar.** De vraag staat in
+1. **De bevindingen van auditronde 4 zijn nog niet verwerkt.** Bart heeft het
+   pakket van commit `c7c9e07` op 7 oktober 2026 aan ChatGPT voorgelegd en
+   laten nakijken; wat daar uit kwam, is in die sessie niet doorgegeven. Vraag
+   het dus op voor je iets anders doet. De vraag zelf staat in
    `audit/VRAAG_2026-10-07_ronde4.md` en gaat over de vier beslissingen van
-   7 oktober 2026 (dividend bruto, SPY herbelegt, de minuutbalk, twee curves).
-   Ze zegt er expliciet bij wat NIET meer gevraagd hoeft te worden, zodat de
-   controleur geen beslissing opnieuw ter discussie stelt. Ronde 3 (commit
-   `ee05594`, `audit/VRAAG_2026-10-07_ronde3.md`) staat nog uit; komt daar
-   antwoord op, behandel het dan als ronde 1 en 2: eerst narekenen of de
-   bevinding klopt, dan pas bouwen, en nooit het bestaande bewijs aanraken.
+   7 oktober 2026 (dividend bruto, SPY herbelegt, de minuutbalk, twee curves);
+   ze zegt er expliciet bij wat NIET meer gevraagd hoefde te worden.
+
+   Behandel elke bevinding als in ronde 1 tot en met 3: eerst narekenen of ze
+   klopt, dan pas bouwen, nooit het bestaande bewijs aanraken, en een nieuwe
+   ronde krijgt een eigen `audit/VRAAG_*.md` in plaats van een wijziging van de
+   vorige. Van ronde 3 (commit `ee05594`) is evenmin een antwoord verwerkt.
 
 2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
