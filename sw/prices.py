@@ -88,6 +88,37 @@ def haal_wisselkoers(start: str, eind: Optional[str] = None) -> pd.Series:
     return koers.sort_index().dropna()
 
 
+def haal_dividenden(tickers: List[str], start: str) -> Dict[str, Dict[str, float]]:
+    """Welke dividenden Yahoo kent per aandeel: ex-datum naar bruto bedrag.
+
+    Dit is bedoeld om te CONTROLEREN of er een uitkering gemist is, niet om er
+    rechtstreeks mee te rekenen. Yahoo levert namelijk alleen de ex-datum en
+    niet de betaaldatum, en zonder betaaldatum is niet bekend bij welke wissel
+    het geld meegaat. Die datum vult een mens in, met bron.
+
+    Een aandeel waarvoor Yahoo niets teruggeeft, komt hier als een lege lijst
+    terug. Dat betekent "niets bekend", niet "zeker geen dividend".
+    """
+    vanaf = pd.Timestamp(start).normalize()
+    uit: Dict[str, Dict[str, float]] = {}
+    for t in sorted(set(tickers)):
+        try:
+            reeks = yf.Ticker(t).dividends
+        except Exception:
+            reeks = None
+        gevonden: Dict[str, float] = {}
+        if reeks is not None and len(reeks):
+            index = pd.to_datetime(reeks.index)
+            if getattr(index, "tz", None) is not None:
+                index = index.tz_localize(None)
+            for datum, bedrag in zip(index, reeks.values):
+                dag = pd.Timestamp(datum).normalize()
+                if dag >= vanaf and float(bedrag) > 0:
+                    gevonden[str(dag.date())] = float(bedrag)
+        uit[t] = gevonden
+    return uit
+
+
 def eerste_handelsdag_na(index: pd.DatetimeIndex, datum: str) -> Optional[pd.Timestamp]:
     later = index[index > pd.Timestamp(datum)]
     return pd.Timestamp(later[0]) if len(later) else None

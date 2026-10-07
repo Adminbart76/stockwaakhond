@@ -13,11 +13,11 @@ echo   wat de portefeuille op die dag waard is, wordt opnieuw
 echo   verdeeld. Het gebeurt maar een keer per signaal en kan
 echo   daarna niet meer wijzigen.
 echo.
-echo   Doe dit tussen 22u20 en 01u00 (onze tijd), dus op de avond
+echo   Doe dit tussen 22u20 en 06u00 (onze tijd), dus op de avond
 echo   van de beursdag na het nieuwe signaal. Na 22u20 is de
-echo   Amerikaanse beurs dicht; na 01u00 geeft Yahoo voor
-echo   diezelfde dag een andere wisselkoers terug, en dan weigert
-echo   het programma.
+echo   Amerikaanse beurs dicht en ligt de wisselkoers van de
+echo   slotbel vast. Later dan 06u00 weigert het programma: dan
+echo   is niet meer te zien dat er geen gunstig moment is gekozen.
 echo.
 echo   Is het nog te vroeg, dan zegt het programma dat gewoon
 echo   en is er niets gebeurd. Probeer dan later opnieuw.

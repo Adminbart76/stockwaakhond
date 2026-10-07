@@ -318,14 +318,70 @@ def test_dividend_kan_niet_negatief_zijn(instap):
 
 
 def test_het_dividend_van_spy_blijft_bij_spy(instap):
+    """Nog niet herbelegd dividend van SPY staat contant - en blijft bij SPY."""
     herb = wissel(instap, factor=1.0, spy_dividend_cash_usd=12.0,
                   dividend_conventie="bruto, test")
     assert herb["benchmark"]["cash_usd"] == pytest.approx(12.0)
     assert herb["benchmark"]["shares"] == instap["benchmark"]["shares"], (
-        "SPY koopt niets bij: het dividend blijft contant staan."
+        "Zonder herbelegging verandert het aantal aandelen niet."
     )
     assert herb["opening"]["cash_usd"] == 0.0, (
         "Het dividend van SPY hoort niet in de portefeuille van StockWaakhond."
+    )
+
+
+def test_herbelegd_spy_dividend_verhoogt_het_aantal_aandelen(instap):
+    """SPY koopt met zijn eigen dividend bij: dat is geen wissel en geen kost."""
+    begin = float(instap["benchmark"]["shares"])
+    koers = 800.0
+    bedrag = 12.0
+    herb = wissel(instap, factor=1.0,
+                  spy_dividend_cash_usd=bedrag,
+                  spy_herbelegd_usd=bedrag,
+                  spy_extra_shares=bedrag / koers,
+                  dividend_conventie="bruto, test")
+
+    assert herb["benchmark"]["shares"] == pytest.approx(begin + bedrag / koers)
+    assert herb["benchmark"]["cash_usd"] == 0.0, (
+        "Herbelegd geld staat niet meer contant; anders telt het dubbel."
+    )
+    assert herb["benchmark"]["buy_price_usd"] == instap["benchmark"]["buy_price_usd"], (
+        "De aankoopkoers van de eerste aankoop blijft staan."
+    )
+    assert herb["opening"]["benchmark_shares"] == pytest.approx(begin + bedrag / koers)
+
+
+def test_spy_kan_niet_meer_herbeleggen_dan_er_betaald_is(instap):
+    with pytest.raises(ValueError, match="herbelegd"):
+        wissel(instap, factor=1.0,
+               spy_dividend_cash_usd=5.0,
+               spy_herbelegd_usd=12.0,
+               spy_extra_shares=0.015,
+               dividend_conventie="bruto, test")
+
+
+def test_herbeleggen_vraagt_om_bedrag_en_aandelen_samen(instap):
+    """Met maar een van de twee is niet na te rekenen tegen welke koers."""
+    with pytest.raises(ValueError, match="twee getallen"):
+        wissel(instap, factor=1.0, spy_herbelegd_usd=12.0,
+               dividend_conventie="bruto, test")
+    with pytest.raises(ValueError, match="twee getallen"):
+        wissel(instap, factor=1.0, spy_extra_shares=0.015,
+               dividend_conventie="bruto, test")
+
+
+def test_de_uitsplitsing_van_het_dividend_staat_in_het_record(instap):
+    """Zonder bedrag per aandeel kan een latere lezer het niet narekenen."""
+    detail = [{
+        "ticker": "MPC", "ex_date": "2026-10-20", "pay_date": "2026-11-02",
+        "per_share_usd": 1.0, "shares": 0.46, "bedrag_usd": 0.46,
+        "conventie": "bruto",
+    }]
+    herb = wissel(instap, factor=1.0, dividend_cash_usd=0.46,
+                  dividend_conventie="bruto, test", dividend_detail=detail)
+    assert herb["opening"]["dividend_detail"] == detail
+    assert "dividend_detail" in herb["canonical_payload"], (
+        "De uitsplitsing hoort in de gehashte tekst te staan."
     )
 
 

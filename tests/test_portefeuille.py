@@ -8,10 +8,17 @@ eerste signaal.
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pandas as pd
 import pytest
 
+from sw import dividend as div
 from sw import portfolio as pf
+from sw.strategy import sha256_text
+
+PROJECT = Path(__file__).resolve().parent.parent
 
 KOERSEN = {"MRNA": 203.21, "ILMN": 293.69, "MPC": 433.47, "HPE": 68.36, "VLO": 419.33}
 TICKERS = list(KOERSEN)
@@ -166,56 +173,49 @@ def test_dividend_bij_een_kant_alleen_geeft_een_onverdiende_voorsprong(instap):
 
 
 DIVIDENDEN = [
-    {"ticker": "MPC", "ex_date": "2026-11-16",
+    {"ticker": "MPC", "ex_date": "2026-11-16", "pay_date": "2026-12-04",
      "gross_per_share_usd": 1.0, "net_per_share_usd": 0.70},
-    {"ticker": "SPY", "ex_date": "2026-12-18",
+    {"ticker": "SPY", "ex_date": "2026-12-18", "pay_date": "2027-01-08",
      "gross_per_share_usd": 2.0, "net_per_share_usd": 1.40},
-    {"ticker": "KOMT_NIET_VOOR", "ex_date": "2026-11-16",
+    {"ticker": "KOMT_NIET_VOOR", "ex_date": "2026-11-16", "pay_date": "2026-12-04",
      "gross_per_share_usd": 9.0, "net_per_share_usd": 9.0},
 ]
 
 
-def test_dividend_wordt_voor_beide_kanten_op_dezelfde_manier_gerekend(instap):
-    fx = pd.Series([FX] * 10, index=pd.date_range("2026-11-10", periods=10, freq="D"))
-    fx = pd.concat([fx, pd.Series([FX] * 40,
-                                  index=pd.date_range("2026-11-20", periods=40, freq="D"))])
+def test_dividend_gaat_bij_beide_kanten_door_dezelfde_functie(instap):
+    """Dezelfde conventie voor onze vijf en voor SPY: bruto.
 
-    aandelen_sw = {p["ticker"]: p["shares"] for p in instap["positions"]}
-    aandelen_bm = {instap["benchmark"]["ticker"]: instap["benchmark"]["shares"]}
+    Zodra de ene kant anders gerekend wordt dan de andere, meet de grafiek niet
+    meer het verschil tussen twee beleggingen. Het rekenwerk zelf staat in
+    sw/dividend.py en wordt in tests/test_dividend.py uitgebreid nagerekend.
+    """
+    koersen = pd.Series(
+        [SPY] * 60, index=pd.date_range("2026-12-01", periods=60, freq="D"))
 
-    sw = pf.dividend_reeks(DIVIDENDEN, aandelen_sw, fx)
-    bm = pf.dividend_reeks(DIVIDENDEN, aandelen_bm, fx)
+    onze = div.portefeuille_dividenden([instap], DIVIDENDEN)
+    spy = div.spy_dividenden([instap], DIVIDENDEN, koersen)
 
     mpc = next(p for p in instap["positions"] if p["ticker"] == "MPC")
-    assert sw.loc[pd.Timestamp("2026-11-16")] == pytest.approx(
-        mpc["shares"] * 0.70 / FX, rel=1e-9)
-    assert bm.loc[pd.Timestamp("2026-12-18")] == pytest.approx(
-        instap["benchmark"]["shares"] * 1.40 / FX, rel=1e-9)
+    assert len(onze) == 1, "Een aandeel dat je niet hebt, levert niets op."
+    assert onze[0]["bedrag_usd"] == pytest.approx(mpc["shares"] * 1.0, abs=1e-8)
+    assert onze[0]["conventie"] == div.CONVENTIE
 
-    # Een aandeel dat je niet hebt, levert niets op.
-    assert len(sw) == 1 and len(bm) == 1
-
-
-def test_bruto_in_plaats_van_netto_is_een_keuze_die_voor_beide_geldt(instap):
-    fx = pd.Series([FX] * 60, index=pd.date_range("2026-11-10", periods=60, freq="D"))
-    aandelen = {"MPC": 1.0}
-    netto = pf.dividend_reeks(DIVIDENDEN, aandelen, fx, netto=True)
-    bruto = pf.dividend_reeks(DIVIDENDEN, aandelen, fx, netto=False)
-    assert bruto.iloc[0] == pytest.approx(netto.iloc[0] / 0.70, rel=1e-9)
+    assert len(spy) == 1
+    assert spy[0]["bedrag_usd"] == pytest.approx(
+        instap["benchmark"]["shares"] * 2.0, abs=1e-8)
+    assert spy[0]["conventie"] == div.CONVENTIE
 
 
-def test_een_ontbrekend_nettobedrag_wordt_niet_zelf_verzonnen():
-    fx = pd.Series([FX] * 60, index=pd.date_range("2026-11-10", periods=60, freq="D"))
-    zonder_netto = [{"ticker": "MPC", "ex_date": "2026-11-16",
-                     "gross_per_share_usd": 1.0, "net_per_share_usd": None}]
-    with pytest.raises(ValueError, match="nettobedrag"):
-        pf.dividend_reeks(zonder_netto, {"MPC": 1.0}, fx)
+def test_de_conventie_is_niet_meer_per_aanroep_in_te_stellen():
+    """Bruto staat vast; er is geen netto-schakelaar meer om te vergeten.
 
-
-def test_zonder_wisselkoers_wordt_dividend_niet_omgerekend():
-    leeg = pd.Series(dtype=float)
-    with pytest.raises(ValueError, match="wisselkoers"):
-        pf.dividend_reeks(DIVIDENDEN, {"MPC": 1.0}, leeg)
+    De oude pf.dividend_reeks() kon netto of bruto rekenen en stond op de
+    ex-datum. Beide eigenschappen zijn nu fout: netto is geen officiele
+    conventie, en de ex-datum is het moment van het RECHT en niet van het GELD.
+    """
+    assert not hasattr(pf, "dividend_reeks")
+    assert div.CONVENTIE == "bruto"
+    assert div.BEDRAG_VELD == "gross_per_share_usd"
 
 
 # --------------------------------------------- geen koers, dan geen bedrag
@@ -303,3 +303,62 @@ def test_het_verloop_telt_dividend_bij_beide_kanten(instap):
 def test_grootste_terugval_wordt_goed_gemeten():
     reeks = pd.Series([100.0, 110.0, 99.0, 105.0])
     assert pf.max_daling(reeks) == pytest.approx(-10.0, abs=1e-6)
+
+
+# ------------------------------- de vorm van het gehashte record blijft staan
+def test_zonder_wisselkoersbewijs_komt_er_geen_veld_bij(instap):
+    """De velden van sw/fx.py mogen alleen in het record als ze er horen.
+
+    De instap van 6 oktober 2026 is vastgelegd voordat die regel bestond. Zou
+    bereken_instap() er stilletjes velden bij zetten, dan was dat record niet
+    meer na te rekenen met de code van nu.
+    """
+    inhoud = json.loads(instap["canonical_payload"])
+    assert set(inhoud) == {
+        "entry_hash", "execution_date", "fx_pair", "fx_rate", "fx_source",
+        "fx_asof", "start_capital_eur", "cost_pct", "cost_eur", "invested_eur",
+        "positions", "benchmark",
+    }
+    assert not any(naam.startswith("fx_bar") or naam.startswith("fx_control")
+                   for naam in inhoud)
+
+
+def test_met_wisselkoersbewijs_staan_de_velden_er_wel_in():
+    bewijs = {
+        "fx_bar_start": "2026-11-04T15:59:00-05:00",
+        "fx_bar_end": "2026-11-04T16:00:00-05:00",
+        "fx_bar_normaal": True,
+        "fx_control_source": "ECB", "fx_control_date": "2026-11-04",
+        "fx_control_rate": 1.1612, "fx_control_same_day": True,
+        "fx_control_deviation_pct": 0.19,
+    }
+    met = pf.bereken_instap(
+        entry_hash="test", execution_date="2026-10-06", tickers=TICKERS,
+        koersen_usd=KOERSEN, fx_eurusd=FX, spy_koers_usd=SPY,
+        fx_source="test", fx_asof="2026-10-06T20:54:00+00:00", fx_bewijs=bewijs)
+    inhoud = json.loads(met["canonical_payload"])
+    for naam, waarde in bewijs.items():
+        assert inhoud[naam] == waarde
+
+
+def test_een_verzonnen_veld_komt_het_bewijs_niet_in():
+    with pytest.raises(ValueError, match="hoort niet bij het wisselkoersbewijs"):
+        pf.bereken_instap(
+            entry_hash="test", execution_date="2026-10-06", tickers=TICKERS,
+            koersen_usd=KOERSEN, fx_eurusd=FX, spy_koers_usd=SPY,
+            fx_source="test", fx_asof="2026-10-06T20:54:00+00:00",
+            fx_bewijs={"fx_gunstig": 1.0})
+
+
+def test_de_vastgelegde_instap_hoort_nog_steeds_bij_haar_controlegetal():
+    """De bewaarde tekst en het bewaarde controlegetal, los van elke berekening.
+
+    Dit is de laatste controle die altijd blijft werken: wat er in
+    forward_log/executions.jsonl staat, moet bij elkaar horen. Faalt dit, dan is
+    het bewijsmateriaal zelf aangeraakt.
+    """
+    pad = PROJECT / "forward_log" / "executions.jsonl"
+    eerste = json.loads(pad.read_text(encoding="utf-8").splitlines()[0])
+    assert sha256_text(eerste["canonical_payload"]) == eerste["exec_hash"]
+    assert eerste["exec_hash"] == (
+        "3468930ea4971945c8e8dad57b2cc797f9c825508368eff6bef5038090d3dae7")

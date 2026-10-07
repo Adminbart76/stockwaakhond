@@ -33,8 +33,8 @@ Drie keuzes die hier gemaakt zijn
    en ook hetzelfde dividend. SPY keert vier keer per jaar uit; zou alleen
    StockWaakhond zijn dividend meegeteld krijgen, dan zou de strategie elk jaar
    ongeveer een procent voorsprong krijgen die ze niet verdiend heeft. Daarom
-   gaat dividend bij allebei via dezelfde functie en dezelfde fiscale
-   conventie. Zie dividend_reeks().
+   gaat dividend bij allebei via dezelfde functie en dezelfde conventie: bruto,
+   het volledige uitgekeerde bedrag. Dat staat in sw/dividend.py.
 
 Over de wisselkoers
 ===================
@@ -54,6 +54,7 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
+from .fx import BEWIJSVELDEN as FX_BEWIJSVELDEN
 from .strategy import canonical_json, sha256_text
 
 STARTKAPITAAL_EUR = 1000.0
@@ -72,10 +73,16 @@ def bereken_instap(
     fx_asof: str,
     start_capital_eur: float = STARTKAPITAAL_EUR,
     cost_pct: float = KOSTEN_PCT,
+    fx_bewijs: Optional[Dict[str, object]] = None,
 ) -> dict:
     """Berekent de instap. Geeft een compleet record terug, schrijft niets weg.
 
     fx_eurusd is het aantal dollar voor een euro (bijvoorbeeld 1,1266).
+
+    fx_bewijs is het spoor van de wisselkoers zoals sw/fx.py het aanlevert: de
+    minuutbalk waar de koers bij hoort en het controlegetal van de ECB. Dat gaat
+    mee in de gehashte tekst. De instap van 6 oktober 2026 is zonder die velden
+    vastgelegd - de regel bestond toen nog niet - en blijft precies zoals ze is.
     """
     if not tickers:
         raise ValueError("Geen aandelen opgegeven.")
@@ -129,6 +136,14 @@ def bereken_instap(
         "positions": posities,
         "benchmark": benchmark,
     }
+
+    for naam, waarde in (fx_bewijs or {}).items():
+        if naam not in FX_BEWIJSVELDEN:
+            raise ValueError(
+                f"'{naam}' hoort niet bij het wisselkoersbewijs. Toegestaan: "
+                + ", ".join(sorted(FX_BEWIJSVELDEN))
+            )
+        payload[naam] = waarde
 
     canoniek = canonical_json(payload)
     volledig = dict(payload)
@@ -189,7 +204,7 @@ def waardeer(
     Ontbreekt er een koers, dan komt er geen getal maar een KoersOntbreekt.
     Dividend telt bij beide kanten mee: dividend_eur bij de portefeuille,
     spy_dividend_eur bij de benchmark. Beide horen met dezelfde conventie
-    berekend te zijn - gebruik daarvoor dividend_reeks().
+    berekend te zijn (bruto) - gebruik daarvoor sw/dividend.py.
 
     Werkt ook op een wissel uit sw/herbalans.py. Zo'n record kan contant geld
     bij zich dragen (`cash_usd`, en `cash_usd` in het benchmarkblok). Dat is het
@@ -285,60 +300,14 @@ def splits_resultaat(rendement_usd: float, fx_start: float, fx_nu: float) -> Dic
 
 
 # ------------------------------------------------------------------- dividend
-def dividend_reeks(
-    dividenden: List[dict],
-    aandelen: Dict[str, float],
-    fx: pd.Series,
-    netto: bool = True,
-) -> pd.Series:
-    """Zet uitgekeerde dividenden om in euro per dag, voor de aandelen die je hebt.
-
-    Dezelfde functie wordt gebruikt voor de vijf aandelen van StockWaakhond en
-    voor de SPY-aandelen van de benchmark. Dat is geen gemak maar een eis: zodra
-    de ene kant zijn dividend anders berekend krijgt dan de andere, meet de
-    grafiek niet meer het verschil tussen twee beleggingen.
-
-    dividenden: rijen zoals in de tabel `dividends`, met ticker, ex_date en
-                het bedrag per aandeel in dollar (bruto en netto)
-    aandelen:   hoeveel aandelen je van elk ticker hebt
-    fx:         wisselkoers euro-dollar per datum
-    netto:      netto nemen (wat een Belgische belegger overhoudt) of bruto
-
-    Ontbreekt het nettobedrag terwijl je netto vraagt, dan is dat een fout en
-    geen reden om er zelf een percentage bij te verzinnen: de fiscale
-    conventie is een beslissing, niet een aanname.
-    """
-    bedragen: Dict[pd.Timestamp, float] = {}
-
-    for rij in dividenden:
-        ticker = rij.get("ticker")
-        if ticker not in aandelen:
-            continue
-
-        veld = "net_per_share_usd" if netto else "gross_per_share_usd"
-        per_aandeel = rij.get(veld)
-        if per_aandeel is None:
-            raise ValueError(
-                f"Voor {ticker} op {rij.get('ex_date')} staat er geen "
-                f"{'netto' if netto else 'bruto'}bedrag in de dividendtabel. "
-                "Vul dat eerst in; er wordt geen percentage verzonnen."
-            )
-
-        datum = pd.Timestamp(rij["ex_date"]).normalize()
-        koers = fx.asof(datum) if len(fx) else float("nan")
-        if koers != koers or koers <= 0:
-            raise ValueError(
-                f"Geen wisselkoers bekend op {datum.date()}, dus het dividend "
-                f"van {ticker} kan niet in euro omgerekend worden."
-            )
-
-        bedragen[datum] = bedragen.get(datum, 0.0) + (
-            float(aandelen[ticker]) * float(per_aandeel) / float(koers)
-        )
-
-    if not bedragen:
-        return pd.Series(dtype=float)
-    return pd.Series(bedragen).sort_index()
+# De dividendberekening staat sinds 7 oktober 2026 in sw/dividend.py. Reden: er
+# zijn twee datums die niet door elkaar mogen (de ex-datum bepaalt wie recht
+# heeft, de betaaldatum wanneer het geld er is), en de conventie ligt nu vast op
+# bruto. Dat is te veel regel voor een functie die hier alleen een reeks maakte.
+#
+# De oude dividend_reeks() stond op de ex-datum en kon netto of bruto rekenen.
+# Beide eigenschappen zijn nu fout: netto is geen officiele conventie meer, en
+# de ex-datum is het moment van het RECHT en niet van het GELD.
 
 
 # ------------------------------------------------------------------- verloop
@@ -355,7 +324,8 @@ def bouw_verloop(
     fx:      wisselkoers euro-dollar per datum
 
     Dividend telt bij beide kanten mee en wordt bij beide op dezelfde dag
-    opgeteld als geld, nooit via herrekende koersen.
+    opgeteld als geld, nooit via herrekende koersen. Die dag is de BETAALDAG:
+    op de ex-datum ontstaat het recht, maar het geld is er dan nog niet.
     """
     start = pd.Timestamp(instap["execution_date"])
     index = koersen.index[koersen.index >= start]

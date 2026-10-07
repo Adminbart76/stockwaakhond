@@ -44,26 +44,37 @@ eigenschappen die ze gratis meebrengt:
 
 Bij een volledige wissel gaat er twee keer de portefeuillewaarde over de
 toonbank, en rekent deze formule toch 0,15 % en niet 0,30 %. Dat is de conventie
-van de bevroren opzet en wordt hier bewust niet gewijzigd; zie het openstaande
-punt in CLAUDE.md. De parameter `omzet_factor` bestaat voor de realistische
-tweede curve die daar later naast komt. Een vastgelegde wissel gebruikt altijd de
+van de bevroren opzet en wordt hier bewust niet gewijzigd: op 7 oktober 2026 is
+beslist dat de officiële curve zo blijft en dat er een tweede, realistische curve
+NAAST komt. Die staat in sw/realistisch.py, rekent over de werkelijk verhandelde
+bedragen, en schrijft nergens iets weg. Een vastgelegde wissel gebruikt altijd de
 bevroren conventie.
+
+De parameter `omzet_factor` hieronder is daarbij met opzet NIET de weg naar die
+tweede curve: twee keer de eenzijdige omzet klopt bij een volledige wissel en is
+fout bij elke wissel waar posities blijven staan of waar alleen contant geld
+belegd wordt.
 
 SPY wordt nooit teruggezet
 ==========================
 De maatstaf koopt één keer, op dezelfde dag, met dezelfde kost, en houdt dat
-daarna vast. Bij een wissel wordt het SPY-blok letterlijk overgenomen uit de
-vorige uitvoering, zodat er per constructie niets aan kan verschuiven. SPY
-betaalt dus ook niet mee aan de wisselkosten van StockWaakhond. Alleen het
-contante dividend van SPY kan groeien, met dezelfde conventie als de andere kant.
+daarna vast. Bij een wissel wordt het SPY-blok overgenomen uit de vorige
+uitvoering: dezelfde aankoopkoers, geen kost, geen herverdeling. SPY betaalt dus
+per constructie niet mee aan de rotatie van StockWaakhond.
+
+Het enige wat aan SPY kan groeien, is zijn aantal aandelen door zijn eigen
+dividend: dat wordt op de betaaldag herbelegd in SPY zelf, tegen de
+eerstvolgende geldige slotkoers, zonder kosten. Dat is geen rotatie en geen
+verkoop - er wordt alleen bijgekocht met geld dat SPY zelf heeft uitgekeerd.
+In het kort: SPY buy-and-hold met bruto dividendherbelegging op betaaldatum.
 
 Dividend
 ========
-Het contante dividendgeld is hier een getal dat de aanroeper MOET meegeven,
-samen met de conventie waarmee het berekend is. Er wordt niets verzonnen: welk
-deel van een dividend een Belgische belegger overhoudt, is een beslissing en geen
-aanname. Zolang die beslissing niet genomen is, hoort er nul te staan en hoort
-het scherm te zeggen dat de vergelijking alleen koerswinst is.
+De conventie ligt vast en is BRUTO, aan beide kanten (7 oktober 2026). De
+bedragen komen hier binnen als getallen die de aanroeper berekend heeft met
+sw/dividend.py; dat bestand kent het verschil tussen de ex-datum (wie recht
+heeft) en de betaaldatum (wanneer het geld er is). Hier wordt niets opgezocht en
+niets verzonnen - alleen nagerekend dat het geld van SPY klopt.
 """
 
 from __future__ import annotations
@@ -72,7 +83,7 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
-from .portfolio import KoersOntbreekt
+from .portfolio import FX_BEWIJSVELDEN, KoersOntbreekt
 from .strategy import canonical_json, sha256_text
 
 SCHEMA_VERSIE = 2
@@ -181,6 +192,37 @@ def laatste_uitvoering(uitvoeringen: List[dict]) -> Optional[dict]:
     return keten[-1] if keten else None
 
 
+def uitvoering_op(uitvoeringen: List[dict], datum) -> Optional[dict]:
+    """De uitvoering die op die dag geldt: de laatste op of voor die dag.
+
+    Op de dag van een wissel geldt de wissel zelf. Dat klopt met de rekenwijze:
+    er wordt gewisseld tegen de slotkoers van die dag, dus de waarde van die dag
+    is de waarde na de wissel.
+    """
+    dag = pd.Timestamp(datum).normalize()
+    geldig = None
+    for u in sorteer_keten(list(uitvoeringen or [])):
+        if pd.Timestamp(u["execution_date"]).normalize() <= dag:
+            geldig = u
+    return geldig
+
+
+def uitvoering_voor(uitvoeringen: List[dict], datum) -> Optional[dict]:
+    """De uitvoering die STRIKT VOOR die dag gold.
+
+    Nodig voor dividend: wie een aandeel op de ex-dag zelf koopt, krijgt dat
+    dividend niet. Onze wissels gebeuren tegen de slotkoers van de
+    uitvoeringsdag, dus op een ex-dag die samenvalt met een uitvoeringsdag was
+    het OUDE mandje in bezit.
+    """
+    dag = pd.Timestamp(datum).normalize()
+    geldig = None
+    for u in sorteer_keten(list(uitvoeringen or [])):
+        if pd.Timestamp(u["execution_date"]).normalize() < dag:
+            geldig = u
+    return geldig
+
+
 def actieve_tickers(uitvoeringen: List[dict]) -> List[str]:
     """De aandelen die NU in de portefeuille zitten, plus de maatstaf.
 
@@ -251,6 +293,11 @@ def bereken_herbalans(
     dividend_conventie: Optional[str] = None,
     cost_pct: Optional[float] = None,
     omzet_factor: float = 1.0,
+    spy_extra_shares: float = 0.0,
+    spy_herbelegd_usd: float = 0.0,
+    dividend_detail: Optional[List[dict]] = None,
+    spy_dividend_detail: Optional[List[dict]] = None,
+    fx_bewijs: Optional[Dict[str, object]] = None,
 ) -> dict:
     """Herverdeelt de bestaande portefeuille over de nieuwe Top-5.
 
@@ -260,6 +307,23 @@ def bereken_herbalans(
     koersen_usd moet de slotkoers bevatten van elk aandeel dat je HEBT en van elk
     aandeel dat je KRIJGT. Ontbreekt er één, dan is er geen waarde en dus geen
     wissel: dat is een KoersOntbreekt en geen geschat getal.
+
+    Over het dividend dat hier binnenkomt
+    =====================================
+    `dividend_cash_usd` is het geld dat tussen de vorige uitvoering en deze dag
+    WERKELIJK BESCHIKBAAR is geworden: uitkeringen met een betaaldatum in dat
+    venster. Niet met een ex-datum - zie sw/dividend.py. Het recht hoort bepaald
+    te zijn met het aantal aandelen van de ex-dag, ook van een aandeel dat
+    inmiddels verkocht is.
+
+    Aan de kant van SPY zijn er drie getallen, omdat SPY zijn dividend herbelegt:
+      spy_extra_shares     de aandelen die met al herbelegd dividend gekocht zijn
+      spy_herbelegd_usd    het bedrag dat daarin is omgezet (alleen voor het spoor)
+      spy_dividend_cash_usd  wat al betaald is maar nog niet herbelegd kon worden
+
+    Die eerste twee en die derde sluiten elkaar uit: een uitkering zit in de
+    aandelen of staat contant, nooit in beide. Anders zou SPY zijn dividend
+    dubbel krijgen.
     """
     vorige = stand_na(vorige_uitvoering)
 
@@ -271,7 +335,17 @@ def bereken_herbalans(
         raise ValueError("De wisselkoers moet groter dan nul zijn.")
     if dividend_cash_usd < 0 or spy_dividend_cash_usd < 0:
         raise ValueError("Dividend kan niet negatief zijn.")
-    if (dividend_cash_usd or spy_dividend_cash_usd) and not dividend_conventie:
+    if spy_extra_shares < 0 or spy_herbelegd_usd < 0:
+        raise ValueError("Herbelegd dividend kan niet negatief zijn.")
+    if (spy_extra_shares and not spy_herbelegd_usd) or (
+            spy_herbelegd_usd and not spy_extra_shares):
+        raise ValueError(
+            "Herbelegd SPY-dividend hoort met twee getallen te komen: het bedrag "
+            "en de aandelen die ervoor gekocht zijn. Met maar een van de twee is "
+            "niet na te rekenen tegen welke koers er herbelegd is."
+        )
+    if (dividend_cash_usd or spy_dividend_cash_usd or spy_herbelegd_usd) \
+            and not dividend_conventie:
         raise ValueError(
             "Er is dividend meegegeven zonder de conventie waarmee het berekend "
             "is (bruto of netto, en welke percentages). Die conventie is een "
@@ -319,8 +393,25 @@ def bereken_herbalans(
 
     spy_koers = round(float(spy_koers_usd), 8)
     bm_vorige = vorige["benchmark"]
+
+    # Het geld van SPY blijft kloppen: wat er contant stond, plus wat er betaald
+    # is, min wat er herbelegd is. Zou die som niet opgaan, dan krijgt SPY zijn
+    # dividend dubbel (een keer contant en een keer in aandelen) of helemaal
+    # niet, en dan meet de grafiek niet meer het verschil tussen twee
+    # beleggingen.
     bm_contant = round(
-        float(bm_vorige.get("cash_usd") or 0.0) + float(spy_dividend_cash_usd), 8)
+        float(bm_vorige.get("cash_usd") or 0.0)
+        + float(spy_dividend_cash_usd)
+        - float(spy_herbelegd_usd), 8)
+    if bm_contant < -1e-6:
+        raise ValueError(
+            "Er zou meer SPY-dividend herbelegd zijn dan er ooit betaald is "
+            f"({spy_herbelegd_usd:.2f} dollar herbelegd, "
+            f"{float(bm_vorige.get('cash_usd') or 0.0) + float(spy_dividend_cash_usd):.2f} "
+            "dollar beschikbaar)."
+        )
+    bm_contant = max(bm_contant, 0.0)
+    bm_aandelen = round(float(bm_vorige["shares"]) + float(spy_extra_shares), 10)
 
     # ---- 2. huidige gewichten, 3. doelgewichten, 4. omzet, 5. kost
     huidig = {p["ticker"]: p["value_usd"] / totaal_usd for p in opening_posities}
@@ -366,10 +457,14 @@ def bereken_herbalans(
             "cash_usd": contant_usd,
             "dividend_cash_usd": round(float(dividend_cash_usd), 8),
             "dividend_conventie": dividend_conventie or "geen dividend meegerekend",
+            "dividend_detail": list(dividend_detail or []),
             "total_usd": totaal_usd,
             "benchmark_close_usd": spy_koers,
-            "benchmark_value_usd": round(
-                float(bm_vorige["shares"]) * spy_koers + bm_contant, 8),
+            "benchmark_shares": bm_aandelen,
+            "benchmark_dividend_betaald_usd": round(float(spy_dividend_cash_usd), 8),
+            "benchmark_dividend_herbelegd_usd": round(float(spy_herbelegd_usd), 8),
+            "benchmark_dividend_detail": list(spy_dividend_detail or []),
+            "benchmark_value_usd": round(bm_aandelen * spy_koers + bm_contant, 8),
         },
         "turnover": round(omzet, 10),
         "turnover_convention": (
@@ -385,12 +480,24 @@ def bereken_herbalans(
         "benchmark": {
             "ticker": bm_vorige["ticker"],
             "buy_price_usd": bm_vorige["buy_price_usd"],
-            "shares": bm_vorige["shares"],
+            "shares": bm_aandelen,
             "invested_eur": bm_vorige["invested_eur"],
             "invested_usd": bm_vorige["invested_usd"],
             "cash_usd": bm_contant,
         },
     }
+
+    # Het spoor van de wisselkoers hoort in de GEHASHTE tekst te staan en niet
+    # alleen in een kolom: de minuutbalk waar de koers bij hoort, en het
+    # onafhankelijke controlegetal van de ECB. Alleen bekende velden mogen erin,
+    # zodat er via deze weg niets anders in het bewijs kan belanden.
+    for naam, waarde in (fx_bewijs or {}).items():
+        if naam not in FX_BEWIJSVELDEN:
+            raise ValueError(
+                f"'{naam}' hoort niet bij het wisselkoersbewijs. Toegestaan: "
+                + ", ".join(sorted(FX_BEWIJSVELDEN))
+            )
+        payload[naam] = waarde
 
     canoniek = canonical_json(payload)
     volledig = dict(payload)
@@ -405,7 +512,7 @@ def bouw_verloop_keten(
     koersen: pd.DataFrame,
     fx: pd.Series,
     dividend_usd_per_dag: Optional[pd.Series] = None,
-    spy_dividend_usd_per_dag: Optional[pd.Series] = None,
+    spy_events: Optional[List[dict]] = None,
 ) -> pd.DataFrame:
     """Het dagelijkse verloop in euro over de hele keten, inclusief wissels.
 
@@ -414,11 +521,14 @@ def bouw_verloop_keten(
     van die dag is de waarde na de kost, en het nieuwe mandje begint pas de dag
     erna te bewegen.
 
-    Dividend wordt in dollar meegegeven als bedrag per dag. Aan de kant van de
-    portefeuille verdwijnt het contante geld bij elke wissel (het wordt dan
-    meebelegd), aan de kant van SPY blijft het staan: die koopt niets meer bij.
-    Zolang de fiscale conventie niet vastligt, hoort hier bij beide kanten niets
-    meegegeven te worden, en meet de grafiek dus alleen koerswinst.
+    Dividend aan onze kant komt binnen als bedrag per dag, en die dag is de
+    BETAALDAG - niet de ex-dag. Het blijft contant staan tot de volgende wissel
+    en gaat daar mee in de aandelen.
+
+    Dividend aan de kant van SPY komt binnen als de uitkeringen zelf
+    (sw/dividend.spy_dividenden): die worden op de betaaldag herbelegd, dus het
+    aantal SPY-aandelen groeit onderweg. Tussen betaaldag en herbelegdag staat
+    het bedrag contant. Zo telt een uitkering nooit dubbel.
     """
     keten = sorteer_keten(uitvoeringen)
     if not keten:
@@ -441,6 +551,24 @@ def bouw_verloop_keten(
             if pd.Timestamp(u["execution_date"]) <= dag:
                 geldig = u
         return geldig
+
+    def spy_op(dag: pd.Timestamp):
+        """Aandelen en contant geld van SPY op die dag.
+
+        Een uitkering zit in de aandelen (herbelegd) of staat contant, nooit in
+        beide. Het rekenen gebeurt vanaf het begin van de keten, dus er is geen
+        beginstand die mee kan schuiven.
+        """
+        aandelen, contant = bm_aandelen, 0.0
+        for e in spy_events or []:
+            if pd.Timestamp(e["pay_date"]) > dag:
+                continue
+            herbeleg = e.get("herbeleg_datum")
+            if herbeleg is not None and pd.Timestamp(herbeleg) <= dag:
+                aandelen += float(e["aandelen_bij"])
+            else:
+                contant += float(e["bedrag_usd"])
+        return aandelen, contant
 
     def opgeteld(reeks, vanaf, tot, inclusief_vanaf: bool) -> float:
         if reeks is None or len(reeks) == 0:
@@ -479,15 +607,15 @@ def bouw_verloop_keten(
         contant_usd = float(geldig.get("cash_usd") or 0.0) + opgeteld(
             dividend_usd_per_dag, pd.Timestamp(geldig["execution_date"]), dt,
             inclusief_vanaf=False)
-        spy_contant_usd = opgeteld(
-            spy_dividend_usd_per_dag, start, dt, inclusief_vanaf=True)
+        spy_aandelen, spy_contant_usd = spy_op(dt)
 
         rijen.append({
             "datum": dt,
             "fx_eurusd": float(koers_dag),
             "portefeuille_eur": (totaal_usd + contant_usd) / float(koers_dag),
-            "spy_eur": (bm_aandelen * float(spy_koers) + spy_contant_usd)
+            "spy_eur": (spy_aandelen * float(spy_koers) + spy_contant_usd)
                        / float(koers_dag),
+            "spy_aandelen": spy_aandelen,
             "dividend_eur": contant_usd / float(koers_dag),
             "spy_dividend_eur": spy_contant_usd / float(koers_dag),
             "wissel": dt in wisseldagen,

@@ -43,7 +43,8 @@ import pandas as pd
 PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
-from sw import beurskalender as bk                # noqa: E402
+from sw import beurskalender as bk
+from sw import fx as fxr                # noqa: E402
 from sw import ledger as led                      # noqa: E402
 from sw import portfolio as pf                    # noqa: E402
 from sw import prices as pr                       # noqa: E402
@@ -140,61 +141,70 @@ ontbreekt = [t for t in tickers + ["SPY"] if t not in koersen]
 if ontbreekt:
     stop("geen slotkoers gevonden voor: " + ", ".join(ontbreekt))
 
-fx_reeks = pr.haal_wisselkoers(start=signaal["signal_market_date"])
 fx_gelezen_op = datetime.now(timezone.utc)
-if uitvoeringsdag not in fx_reeks.index:
-    stop(f"geen wisselkoers gevonden voor {uitvoeringsdag.date()}.")
 
-# De wisselkoers mag alleen op de dag zelf vastgelegd worden, na de slotbel in
-# New York en voor de valutadag van Yahoo omslaat. Buiten dat venster geeft
-# Yahoo voor dezelfde datum een ander getal terug: gemeten op 6 oktober 2026
-# week dat 0,3 procent af. Zonder deze controle zou een uitvoering een
-# voorlopige of een verschoven dagwaarde als dagslotkoers kunnen benoemen,
-# en dat getal ligt daarna voor altijd vast.
-fx_mag, fx_stand, fx_uitleg = pr.wisselkoers_is_definitief(
-    uitvoeringsdag, nu=fx_gelezen_op)
-vanaf_hier, tot_hier = bk.venster_in_het_hier(uitvoeringsdag)
+# De wisselkoers volgt sinds 7 oktober 2026 één regel: de laatste volledig
+# afgesloten 1-minuutbalk van EURUSD=X waarvan het interval eindigt op of voor
+# 16:00:00 in New York, met de ECB-referentiekoers van die dag als onafhankelijk
+# controlegetal. Zie sw/fx.py voor het waarom.
+#
+# Wat er nog wel een venster heeft, is het LEZEN: fx_asof hoort binnen acht uur
+# na de slotbel te liggen. Dat is geen rekenregel maar een spoor - zo is te zien
+# dat er niet dagen later een gunstig getal is opgezocht. De database eist
+# hetzelfde.
+fx_mag, fx_stand, fx_uitleg = bk.leesvenster(uitvoeringsdag, nu=fx_gelezen_op)
+vanaf_hier, tot_hier = bk.leesvenster_in_het_hier(uitvoeringsdag)
 if not fx_mag:
     if fx_stand == "te_laat":
         stop(
-            "de wisselkoers van die dag is niet meer betrouwbaar op te halen.\n"
+            "het venster om de wisselkoers vast te leggen is gesloten.\n"
             + fx_uitleg + "\n"
             f"Vastleggen kan op de dag zelf tussen {vanaf_hier} en {tot_hier} uur\n"
             "bij ons. Is dat venster voorbij, dan hoort hier een mens naar te\n"
-            "kijken: de koers van die dag moet dan uit een andere bron komen\n"
-            "en met de hand bevestigd worden."
+            "kijken: dat is een beheershandeling en geen gewone instap."
         )
     klaar(
-        "de wisselkoers van die dag staat nog niet vast.\n" + fx_uitleg + "\n"
+        "de wisselkoers van die dag kan nog niet vastgelegd worden.\n"
+        + fx_uitleg + "\n"
         f"Probeer opnieuw tussen {vanaf_hier} en {tot_hier} uur bij ons."
     )
 
-# De laatste rij van de reeks hoort de dag zelf te zijn. Staat er al een
-# latere dag in, dan loopt de valutadag van Yahoo al verder dan wij denken.
-if pd.Timestamp(fx_reeks.index[-1]).normalize() != uitvoeringsdag.normalize():
+try:
+    fx_bewijs = fxr.wisselkoers_van(uitvoeringsdag, gelezen_op=fx_gelezen_op)
+except fxr.GeenWisselkoers as fout:
     stop(
-        f"de wisselkoersreeks loopt tot {pd.Timestamp(fx_reeks.index[-1]).date()} "
-        f"en niet tot {uitvoeringsdag.date()}.\n"
-        "De dagwaarde van die dag is dan niet meer de koers die bij de\n"
-        "slotkoersen van die dag hoort."
+        "de wisselkoers van die dag is niet volgens de regel te bepalen.\n"
+        + str(fout) + "\n"
+        "Er wordt geen ander getal in de plaats gezet."
+    )
+except Exception as fout:
+    stop(
+        "de wisselkoers of het controlegetal kon niet opgehaald worden:\n"
+        + str(fout) + "\n"
+        "Zonder controlegetal wordt er niets vastgelegd."
     )
 
-fx = float(fx_reeks.loc[uitvoeringsdag])
-
-# fx_asof is het moment waarop deze koers GELEZEN is, en dat is met opzet.
-# De dagbalk van EURUSD=X klikt nooit vast op een slotkoers: hij volgt de
-# koers van dit moment zolang de valutadag loopt. Een verzonnen "slotmoment"
-# zou dus een getal benoemen dat op dat tijdstip niet gold. Wat hier staat kan
-# een latere lezer wel narekenen, en de controle hierboven garandeert dat dat
-# moment binnen het venster van deze handelsdag ligt.
-fx_asof = fx_gelezen_op.isoformat()
+fx = float(fx_bewijs["fx_rate"])
+fx_asof = fx_bewijs["fx_asof"]
+balk = fx_bewijs["balk"]
+ecb = fx_bewijs["ecb"]
 
 print(f"   {fx_uitleg}")
 print(f"   slotkoersen van {uitvoeringsdag.date()} (echte koers, niet herrekend):")
 for t in tickers:
     print(f"      {t:<6} {koersen[t]:>10.4f} USD")
 print(f"      {'SPY':<6} {koersen['SPY']:>10.4f} USD   (vergelijkingsmaatstaf)")
-print(f"   wisselkoers    : 1 euro = {fx:.6f} dollar   ({pr.FX_BRON})")
+print(f"   wisselkoers    : 1 euro = {fx:.6f} dollar")
+print(f"      uit de balk  : {balk['bar_start'].strftime('%H:%M')}-"
+      f"{balk['bar_end'].strftime('%H:%M')} in New York"
+      + ("  (de minuut van de slotbel)" if balk["normaal"]
+         else f"  (terugval: {balk['seconden_voor_slotbel'] // 60} minuut(en) "
+              f"voor de slotbel)"))
+print(f"      gelezen om   : {fx_gelezen_op.strftime('%H:%M')} UTC")
+print(f"   controlegetal  : ECB {ecb['koers']:.6f} van {ecb['datum']}"
+      + ("" if ecb["zelfde_dag"] else "  (laatste beschikbare dag)"))
+print(f"      verschil     : {fx_bewijs['fx_control_deviation_pct']:+.3f} %  "
+      f"(grens: 1 %)")
 
 
 # -------------------------------------------------------------- 4. instap
@@ -207,8 +217,11 @@ instap = pf.bereken_instap(
     koersen_usd=koersen,
     fx_eurusd=fx,
     spy_koers_usd=koersen["SPY"],
-    fx_source=pr.FX_BRON,
+    fx_source=fxr.BRON,
     fx_asof=fx_asof,
+    fx_bewijs={
+        naam: fx_bewijs[naam] for naam in sorted(pf.FX_BEWIJSVELDEN)
+    },
 )
 
 print(f"   startkapitaal        EUR {instap['start_capital_eur']:>10.2f}")
@@ -289,9 +302,15 @@ db.insert("fx_snapshots", [{
     "snapshot_date": str(uitvoeringsdag.date()),
     "pair": "EURUSD",
     "rate": fx,
-    "source": pr.FX_BRON,
+    "source": fxr.BRON,
+    "bar_start": fx_bewijs["fx_bar_start"],
+    "bar_end": fx_bewijs["fx_bar_end"],
+    "control_source": fx_bewijs["fx_control_source"],
+    "control_date": fx_bewijs["fx_control_date"],
+    "control_rate": fx_bewijs["fx_control_rate"],
+    "control_deviation_pct": fx_bewijs["fx_control_deviation_pct"],
 }], negeer_dubbel=True)
-print("   database : fx_snapshots")
+print("   database : fx_snapshots (met de balk en het ECB-controlegetal)")
 
 db.insert("audit_log", [{
     "actor": "scripts/leg_instap_vast.py",

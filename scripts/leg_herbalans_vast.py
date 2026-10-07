@@ -40,10 +40,23 @@ database bij met wat er lokaal al staat. Zonder die weg zou iemand in de
 verleiding komen om het record opnieuw te berekenen, en dan hangt de uitkomst
 af van de koersen op dat latere moment.
 
+Dividend en wisselkoers liggen vast
+===================================
+Sinds 7 oktober 2026 hoeft er bij een wissel niets meer gekozen te worden:
+
+  * dividend is BRUTO, aan beide kanten. Het recht wordt bepaald met het aantal
+    aandelen van de ex-datum, het geld gaat mee zodra de betaaldatum voorbij is.
+    Zie sw/dividend.py.
+  * de wisselkoers is de 1-minuutbalk van de slotbel, met de ECB-referentiekoers
+    als controlegetal. Zie sw/fx.py.
+
+Wat er wel nog kan stoppen: een dividend dat Yahoo kent en onze tabel niet. Dan
+zou de wissel met te weinig geld vastgelegd worden, en dat ligt daarna voor
+altijd vast.
+
 Gebruik:
     python scripts/leg_herbalans_vast.py --toon        (alleen tonen)
     python scripts/leg_herbalans_vast.py              (echt vastleggen)
-    python scripts/leg_herbalans_vast.py --dividend=netto
     python scripts/leg_herbalans_vast.py --alleen-database   (database bijhalen)
 """
 
@@ -60,6 +73,8 @@ PROJECT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT))
 
 from sw import beurskalender as bk                      # noqa: E402
+from sw import dividend as div                          # noqa: E402
+from sw import fx as fxr                                # noqa: E402
 from sw import herbalans as hb                          # noqa: E402
 from sw import ledger as led                            # noqa: E402
 from sw import prices as pr                             # noqa: E402
@@ -71,10 +86,6 @@ UITVOERINGEN = PROJECT / "forward_log" / "executions.jsonl"
 
 ALLEEN_TONEN = "--toon" in sys.argv
 ALLEEN_DATABASE = "--alleen-database" in sys.argv
-DIVIDEND_CONVENTIE = None
-for arg in sys.argv[1:]:
-    if arg.startswith("--dividend="):
-        DIVIDEND_CONVENTIE = arg.split("=", 1)[1].strip().lower()
 
 
 def stop(bericht: str) -> None:
@@ -241,7 +252,17 @@ if any(u["entry_hash"] == signaal["entry_hash"] for u in bestaande):
 kop("2. De uitvoeringsdag bepalen")
 
 nodig = sorted(set(nieuwe_tickers) | set(gehouden) | {vorige["benchmark"]["ticker"]})
-echt, herrekend = pr.haal_koersen(nodig, start=signaal["signal_market_date"])
+
+# Vanaf de eerste uitvoering van de keten ophalen, niet vanaf het signaal. De
+# herbelegging van het SPY-dividend heeft de slotkoersen van vroegere
+# betaaldagen nodig; met een reeks die pas bij het laatste signaal begint, zou
+# een oudere uitkering er als "nog niet herbelegd" uitzien en voor altijd
+# contant blijven staan.
+vanaf = min(
+    str(hb.sorteer_keten(bestaande)[0]["execution_date"]),
+    str(signaal["signal_market_date"]),
+)
+echt, herrekend = pr.haal_koersen(nodig, start=vanaf)
 uitvoeringsdag = pr.eerste_handelsdag_na(echt.index, signaal["signal_market_date"])
 
 if uitvoeringsdag is None:
@@ -276,96 +297,209 @@ if ontbreekt:
         "KRIJGT, is er geen waarde en dus geen wissel. Er wordt niets geschat."
     )
 
-fx_reeks = pr.haal_wisselkoers(start=signaal["signal_market_date"])
 fx_gelezen_op = datetime.now(timezone.utc)
-if uitvoeringsdag not in fx_reeks.index:
-    stop(f"geen wisselkoers gevonden voor {uitvoeringsdag.date()}.")
+fx_mag, fx_stand, fx_uitleg = bk.leesvenster(uitvoeringsdag, nu=fx_gelezen_op)
+vanaf_hier, tot_hier = bk.leesvenster_in_het_hier(uitvoeringsdag)
 
-fx_mag, fx_stand, fx_uitleg = pr.wisselkoers_is_definitief(
-    uitvoeringsdag, nu=fx_gelezen_op)
-vanaf_hier, tot_hier = bk.venster_in_het_hier(uitvoeringsdag)
 if not fx_mag:
     if fx_stand == "te_laat":
         stop(
-            "de wisselkoers van die dag is niet meer betrouwbaar op te halen.\n"
+            "het venster om de wisselkoers vast te leggen is gesloten.\n"
             + fx_uitleg + "\n"
             f"Vastleggen kan op de dag zelf tussen {vanaf_hier} en {tot_hier} uur\n"
             "bij ons. Is dat venster voorbij, dan hoort hier een mens naar te\n"
-            "kijken: de koers van die dag moet dan uit een andere bron komen\n"
-            "en met de hand bevestigd worden."
+            "kijken: dat is een beheershandeling en geen gewone wissel."
         )
     klaar(
-        "de wisselkoers van die dag staat nog niet vast.\n" + fx_uitleg + "\n"
+        "de wisselkoers van die dag kan nog niet vastgelegd worden.\n"
+        + fx_uitleg + "\n"
         f"Probeer opnieuw tussen {vanaf_hier} en {tot_hier} uur bij ons."
     )
 
-if pd.Timestamp(fx_reeks.index[-1]).normalize() != uitvoeringsdag.normalize():
+# De regel van 7 oktober 2026: de laatste afgesloten 1-minuutbalk die eindigt op
+# of voor de slotbel, plus de ECB-referentiekoers als onafhankelijk controlegetal.
+# Wijken die twee meer dan 1 procent af, dan komt er niets uit en kijkt er een
+# mens naar.
+try:
+    fx_bewijs = fxr.wisselkoers_van(uitvoeringsdag, gelezen_op=fx_gelezen_op)
+except fxr.GeenWisselkoers as fout:
     stop(
-        f"de wisselkoersreeks loopt tot {pd.Timestamp(fx_reeks.index[-1]).date()} "
-        f"en niet tot {uitvoeringsdag.date()}.\n"
-        "De dagwaarde van die dag is dan niet meer de koers die bij de\n"
-        "slotkoersen van die dag hoort."
+        "de wisselkoers van die dag is niet volgens de regel te bepalen.\n"
+        + str(fout) + "\n"
+        "Er wordt geen ander getal in de plaats gezet."
+    )
+except Exception as fout:
+    stop(
+        "de wisselkoers of het controlegetal kon niet opgehaald worden:\n"
+        + str(fout) + "\n"
+        "De ECB-referentiekoers is op te zoeken op ecb.europa.eu; zonder\n"
+        "controlegetal wordt er niets vastgelegd."
     )
 
-fx = float(fx_reeks.loc[uitvoeringsdag])
-fx_asof = fx_gelezen_op.isoformat()
+fx = float(fx_bewijs["fx_rate"])
+fx_asof = fx_bewijs["fx_asof"]
+balk = fx_bewijs["balk"]
+ecb = fx_bewijs["ecb"]
 
 print(f"   {fx_uitleg}")
 print(f"   slotkoersen van {uitvoeringsdag.date()} (echte koers, niet herrekend):")
 for t in nodig:
     print(f"      {t:<6} {koersen[t]:>10.4f} USD")
-print(f"   wisselkoers    : 1 euro = {fx:.6f} dollar   ({pr.FX_BRON})")
+print(f"   wisselkoers    : 1 euro = {fx:.6f} dollar")
+print(f"      uit de balk  : {balk['bar_start'].strftime('%H:%M')}-"
+      f"{balk['bar_end'].strftime('%H:%M')} in New York"
+      + ("  (de minuut van de slotbel)" if balk["normaal"]
+         else f"  (terugval: {balk['seconden_voor_slotbel'] // 60} minuut(en) "
+              f"voor de slotbel)"))
+print(f"      gelezen om   : {fx_gelezen_op.strftime('%H:%M')} UTC")
+print(f"   controlegetal  : ECB {ecb['koers']:.6f} van {ecb['datum']}"
+      + ("" if ecb["zelfde_dag"] else "  (laatste beschikbare dag)"))
+print(f"      verschil     : {fx_bewijs['fx_control_deviation_pct']:+.3f} %  "
+      f"(grens: 1 %)")
 
 
 # ---------------------------------------------------------- 4. dividend
 kop("4. Dividend sinds de vorige uitvoering")
 
+# De conventie ligt vast: bruto, aan beide kanten. Er is niets te kiezen.
+# Wat hier wel gebeurt:
+#   * het RECHT wordt bepaald met het aantal aandelen van de ex-datum, ook van
+#     een aandeel dat inmiddels verkocht is;
+#   * het GELD gaat mee zodra de betaaldatum voorbij is - niet eerder;
+#   * het dividend van SPY wordt herbelegd in SPY, tegen de eerstvolgende
+#     slotkoers op of na de betaaldatum.
 cfg = lees_instellingen()
-dividend_usd, spy_dividend_usd = 0.0, 0.0
+bm_ticker = vorige["benchmark"]["ticker"]
+
 try:
-    rijen = Supabase.lezer(cfg).select(
-        "dividends",
-        f"select=*&ex_date=gt.{vorige['execution_date']}"
-        f"&ex_date=lte.{uitvoeringsdag.date()}",
-    )
+    alle_dividenden = Supabase.lezer(cfg).select(
+        "dividends", "select=*&order=ex_date.asc")
 except Exception as fout:
     stop("de dividendtabel kon niet gelezen worden: " + str(fout))
 
-bm_ticker = vorige["benchmark"]["ticker"]
-van_belang = [r for r in rijen if r["ticker"] in set(gehouden) | {bm_ticker}]
-
-if not van_belang:
-    print("   geen dividend uitgekeerd in deze periode")
-elif DIVIDEND_CONVENTIE not in ("bruto", "netto"):
+try:
+    onze_events = div.portefeuille_dividenden(
+        bestaande, alle_dividenden, benchmark_ticker=bm_ticker)
+    spy_events = div.spy_dividenden(
+        bestaande, alle_dividenden, echt[bm_ticker] if bm_ticker in echt.columns else None,
+        benchmark_ticker=bm_ticker)
+except ValueError as fout:
     stop(
-        f"er is in deze periode dividend uitgekeerd ({len(van_belang)} keer), "
-        "maar de conventie ligt niet vast.\n"
-        "Welk deel een Belgische belegger overhoudt, is een beslissing en geen\n"
-        "aanname. Kies die eerst, en draai dan opnieuw met --dividend=bruto of\n"
-        "--dividend=netto. Stil nul euro meerekenen zou een wissel met een\n"
-        "verkeerd bedrag vastleggen, en die ligt daarna voor altijd vast."
+        "de dividendtabel is niet bruikbaar: " + str(fout) + "\n"
+        "Vul de ontbrekende gegevens aan met scripts/leg_dividend_vast.py."
     )
+
+# Wat Yahoo kent en onze tabel niet, is het echte gevaar: dan zou deze wissel
+# met te weinig geld vastgelegd worden, en dat ligt daarna voor altijd vast.
+begin_keten = hb.sorteer_keten(bestaande)[0]["execution_date"]
+bekend = {(r["ticker"], str(r["ex_date"])) for r in alle_dividenden}
+gemist = []
+try:
+    van_yahoo = pr.haal_dividenden(
+        sorted(set(gehouden) | {bm_ticker}), start=begin_keten)
+except Exception as fout:
+    stop(
+        "er kon niet nagekeken worden of er een dividend gemist is:\n"
+        + str(fout) + "\n"
+        "Zonder die controle kan deze wissel met te weinig geld vastgelegd\n"
+        "worden, en dat is niet meer te herstellen."
+    )
+for ticker, uitkeringen in van_yahoo.items():
+    for ex, bedrag in uitkeringen.items():
+        if pd.Timestamp(ex) > pd.Timestamp(uitvoeringsdag):
+            continue
+        if (ticker, ex) in bekend:
+            continue
+        # Alleen wat we werkelijk gekregen zouden hebben. Een uitkering van voor
+        # de dag dat we dat aandeel kochten, levert ons niets op en hoort de
+        # wissel dus niet te blokkeren. Zelfde regel als de berekening gebruikt.
+        if div.recht_op(bestaande, ticker, ex, bm_ticker) > 0:
+            gemist.append((ticker, ex, bedrag))
+
+if gemist:
+    regels = "\n".join(
+        f"      {t:<6} ex {e}  bruto {b:.4f} USD" for t, e, b in sorted(gemist))
+    stop(
+        f"Yahoo kent {len(gemist)} uitkering(en) die niet in onze tabel staan:\n"
+        + regels + "\n"
+        "Leg die eerst vast met scripts/leg_dividend_vast.py (met de betaaldatum\n"
+        "en de bron erbij). Zou deze wissel nu doorgaan, dan werd ze met te\n"
+        "weinig geld vastgelegd - en dat ligt daarna voor altijd vast."
+    )
+
+mee_van_ons = div.betaald_tussen(
+    onze_events, vorige["execution_date"], uitvoeringsdag)
+dividend_usd = div.som(mee_van_ons)
+dividend_detail = div.detail(mee_van_ons)
+
+# Aan de kant van SPY: alles wat betaald is sinds de vorige uitvoering, en
+# daarvan het deel dat inmiddels herbelegd is.
+spy_betaald = div.betaald_tussen(spy_events, vorige["execution_date"], uitvoeringsdag)
+spy_dividend_usd = div.som(spy_betaald)
+spy_detail = div.detail(spy_betaald)
+
+vorige_stand = div.spy_stand_op(
+    float(hb.sorteer_keten(bestaande)[0]["benchmark"]["shares"]),
+    spy_events, vorige["execution_date"])
+nu_stand = div.spy_stand_op(
+    float(hb.sorteer_keten(bestaande)[0]["benchmark"]["shares"]),
+    spy_events, uitvoeringsdag)
+spy_extra_shares = round(nu_stand["aandelen"] - vorige_stand["aandelen"], 10)
+spy_herbelegd_usd = round(
+    float(vorige_stand["contant_usd"]) + spy_dividend_usd - float(nu_stand["contant_usd"]), 8)
+
+# De stand die we nu uit de uitkeringen berekenen, moet overeenkomen met wat er
+# in de vorige uitvoering staat. Lopen die uiteen, dan is er onderweg iets aan de
+# dividendtabel veranderd, en dan zou deze wissel een SPY-positie vastleggen die
+# niet volgt uit wat er daarvoor stond.
+in_record = float(vorige["benchmark"].get("cash_usd") or 0.0)
+if abs(in_record - float(vorige_stand["contant_usd"])) > 0.01:
+    stop(
+        f"het contante SPY-dividend klopt niet: de vorige uitvoering zegt "
+        f"{in_record:.2f} USD, uit de dividendtabel volgt "
+        f"{vorige_stand['contant_usd']:.2f} USD.\n"
+        "Er is sindsdien iets aan de dividendgegevens veranderd. Zoek dat eerst\n"
+        "uit; een wissel die hierop rust zou een verkeerde SPY-positie\n"
+        "vastleggen."
+    )
+in_record_aandelen = float(vorige["benchmark"]["shares"])
+if abs(in_record_aandelen - float(vorige_stand["aandelen"])) > 1e-6:
+    stop(
+        f"het aantal SPY-aandelen klopt niet: de vorige uitvoering zegt "
+        f"{in_record_aandelen:.6f}, uit de uitkeringen volgt "
+        f"{vorige_stand['aandelen']:.6f}.\n"
+        "Zoek dat eerst uit."
+    )
+
+if not mee_van_ons and not spy_betaald:
+    print("   geen dividend beschikbaar gekomen in deze periode")
+    print("   (het recht ontstaat op de ex-datum, het geld op de betaaldatum)")
 else:
-    veld = "gross_per_share_usd" if DIVIDEND_CONVENTIE == "bruto" else "net_per_share_usd"
-    aantallen = {p["ticker"]: float(p["shares"]) for p in vorige["positions"]}
-    aantallen[bm_ticker] = float(vorige["benchmark"]["shares"])
-    for r in van_belang:
-        per_aandeel = r.get(veld)
-        if per_aandeel is None:
-            stop(
-                f"voor {r['ticker']} op {r['ex_date']} staat er geen "
-                f"{DIVIDEND_CONVENTIE}bedrag in de dividendtabel.\n"
-                "Vul dat eerst in; er wordt geen percentage verzonnen."
-            )
-        bedrag = float(per_aandeel) * aantallen[r["ticker"]]
-        if r["ticker"] == bm_ticker:
-            spy_dividend_usd += bedrag
-        else:
-            dividend_usd += bedrag
-        print(f"      {r['ticker']:<6} {r['ex_date']}  {bedrag:>8.2f} USD")
-    print(f"   conventie      : {DIVIDEND_CONVENTIE}")
-    print(f"   portefeuille   : {dividend_usd:.2f} USD")
-    print(f"   {bm_ticker:<14} : {spy_dividend_usd:.2f} USD")
+    for e in mee_van_ons + spy_betaald:
+        print(f"      {e['ticker']:<6} ex {pd.Timestamp(e['ex_date']).date()}  "
+              f"betaald {pd.Timestamp(e['pay_date']).date()}  "
+              f"{e['bedrag_usd']:>8.2f} USD")
+    print(f"   conventie      : {div.CONVENTIE_TEKST}")
+    print(f"   portefeuille   : {dividend_usd:.2f} USD  (gaat mee in deze wissel)")
+    print(f"   {bm_ticker:<14} : {spy_dividend_usd:.2f} USD betaald, "
+          f"{spy_herbelegd_usd:.2f} USD herbelegd")
+    if spy_extra_shares:
+        print(f"   {bm_ticker} koopt er {spy_extra_shares:.6f} aandelen bij "
+              f"met zijn eigen dividend")
+
+nog_niet_betaald = [
+    e for e in onze_events
+    if pd.Timestamp(e["pay_date"]) > pd.Timestamp(uitvoeringsdag)
+]
+if nog_niet_betaald:
+    print()
+    print("   Nog niet beschikbaar (recht erop, geld komt later):")
+    for e in nog_niet_betaald:
+        print(f"      {e['ticker']:<6} ex {pd.Timestamp(e['ex_date']).date()}  "
+              f"betaald {pd.Timestamp(e['pay_date']).date()}  "
+              f"{e['bedrag_usd']:>8.2f} USD")
+    print("   Dat geld gaat mee in de wissel NA de betaaldatum, ook als het")
+    print("   aandeel dan niet meer in de portefeuille zit.")
 
 
 # ----------------------------------------------------------- 5. de wissel
@@ -379,14 +513,28 @@ wissel = hb.bereken_herbalans(
     koersen_usd=koersen,
     fx_eurusd=fx,
     spy_koers_usd=koersen[bm_ticker],
-    fx_source=pr.FX_BRON,
+    fx_source=fxr.BRON,
     fx_asof=fx_asof,
     dividend_cash_usd=dividend_usd,
     spy_dividend_cash_usd=spy_dividend_usd,
+    spy_herbelegd_usd=spy_herbelegd_usd,
+    spy_extra_shares=spy_extra_shares,
+    dividend_detail=dividend_detail,
+    spy_dividend_detail=spy_detail,
     dividend_conventie=(
-        f"{DIVIDEND_CONVENTIE}, uit de tabel dividends"
-        if (dividend_usd or spy_dividend_usd) else None
+        f"{div.CONVENTIE_TEKST}, uit de tabel dividends"
+        if (dividend_usd or spy_dividend_usd or spy_herbelegd_usd) else None
     ),
+    fx_bewijs={
+        "fx_bar_start": fx_bewijs["fx_bar_start"],
+        "fx_bar_end": fx_bewijs["fx_bar_end"],
+        "fx_bar_normaal": fx_bewijs["fx_bar_normaal"],
+        "fx_control_source": fx_bewijs["fx_control_source"],
+        "fx_control_date": fx_bewijs["fx_control_date"],
+        "fx_control_rate": fx_bewijs["fx_control_rate"],
+        "fx_control_same_day": fx_bewijs["fx_control_same_day"],
+        "fx_control_deviation_pct": fx_bewijs["fx_control_deviation_pct"],
+    },
 )
 
 opening = wissel["opening"]
@@ -404,7 +552,10 @@ for p in wissel["positions"]:
           f"{p['invested_usd']:>12.2f}")
 bm = wissel["benchmark"]
 print(f"   {bm['ticker']:<8}{bm['buy_price_usd']:>12.4f}{bm['shares']:>14.6f}"
-      f"{'onaangeroerd':>12}   (maatstaf, koopt niets bij)")
+      f"{'onaangeroerd':>12}   (maatstaf, wisselt niet mee)")
+if spy_extra_shares:
+    print(f"   {bm['ticker']} heeft er {spy_extra_shares:.6f} aandelen bijgekocht "
+          f"met eigen dividend, zonder kost")
 print()
 print(f"   verwijst naar vorige     : {wissel['prev_exec_hash'][:32]}...")
 print(f"   controlegetal wissel     : {wissel['exec_hash'][:32]}...")
@@ -480,9 +631,15 @@ db.insert("fx_snapshots", [{
     "snapshot_date": str(uitvoeringsdag.date()),
     "pair": "EURUSD",
     "rate": fx,
-    "source": pr.FX_BRON,
+    "source": fxr.BRON,
+    "bar_start": fx_bewijs["fx_bar_start"],
+    "bar_end": fx_bewijs["fx_bar_end"],
+    "control_source": fx_bewijs["fx_control_source"],
+    "control_date": fx_bewijs["fx_control_date"],
+    "control_rate": fx_bewijs["fx_control_rate"],
+    "control_deviation_pct": fx_bewijs["fx_control_deviation_pct"],
 }], negeer_dubbel=True)
-print("   database : fx_snapshots")
+print("   database : fx_snapshots (met de balk en het ECB-controlegetal)")
 
 db.insert("audit_log", [{
     "actor": "scripts/leg_herbalans_vast.py",

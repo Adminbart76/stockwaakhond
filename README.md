@@ -73,6 +73,11 @@ De benchmark SPY krijgt exact dezelfde inleg, kosten, wisselkoers, startdag en
 dividendbehandeling. Alles wordt in dollar opgeteld en pas op het einde één keer
 omgezet naar euro, zodat het wisselkoerseffect niet dubbel kan tellen.
 
+Dividend telt bij allebei mee, bruto: het volledige uitgekeerde bedrag, voor
+belasting. Het recht ontstaat op de ex-datum, het geld komt op de betaaldatum.
+Aan onze kant blijft het als geld staan tot de volgende wissel; SPY koopt er op
+de betaaldag meer SPY mee.
+
 Ontbreekt er een koers, dan toont het dashboard geen bedrag. Liever geen cijfer
 dan een cijfer dat eruitziet als de waarde van nu terwijl het op een oude koers
 rust.
@@ -91,7 +96,7 @@ python -m streamlit run streamlit_app.py
 Controleren of alles nog klopt:
 
 ```
-python -m pytest                     # 89 wachters op formule, logboek en rekenwerk
+python -m pytest                     # 195 wachters op formule, logboek en rekenwerk
 python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
 python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
 ```

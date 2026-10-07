@@ -209,6 +209,67 @@ def wisselkoers_is_definitief(
     )
 
 
+LEESVENSTER_UREN = 8      # zover reikt de regel in de database
+
+
+def leesvenster(
+    datum,
+    marge_minuten: int = MARGE_MINUTEN,
+    nu: Optional[datetime] = None,
+) -> Tuple[bool, str, str]:
+    """Mag er NU een wisselkoers van die uitvoeringsdag vastgelegd worden?
+
+    Dit is het venster van de regel die sinds 7 oktober 2026 geldt: de koers komt
+    uit de 1-minuutbalk van de slotbel (zie sw/fx.py). Die balk is afgesloten en
+    verandert niet meer, dus het getal hangt niet meer af van het moment waarop
+    we kijken. Wat er nog wel toe doet, zijn twee dingen:
+
+      * de beurs moet dicht zijn, anders bestaat de balk nog niet;
+      * de database eist dat `fx_asof` - het moment van lezen - binnen acht uur
+        na de slotbel ligt. Dat is geen rekenregel maar een spoor: het laat zien
+        dat er niet dagen later een gunstig getal is opgezocht.
+
+    Geeft (mag, stand, uitleg) terug, met stand "te_vroeg", "goed", "te_laat" of
+    "toekomst". Te vroeg is wachten; te laat is een beheershandeling.
+    """
+    dag = pd.Timestamp(datum).normalize()
+    moment = nu_utc(nu)
+    slot = slotmoment(dag)
+
+    if moment < slot:
+        gesloten, uitleg = beurs_is_gesloten_voor(dag, marge_minuten, nu)
+        stand = "toekomst" if dag > handelsdag_nu(nu) else "te_vroeg"
+        return False, stand, uitleg
+
+    gesloten, uitleg = beurs_is_gesloten_voor(dag, marge_minuten, nu)
+    if not gesloten:
+        return False, "te_vroeg", uitleg
+
+    einde = slot + timedelta(hours=LEESVENSTER_UREN)
+    if moment >= einde:
+        return False, "te_laat", (
+            f"Het venster om de wisselkoers van {dag.date()} vast te leggen is "
+            f"gesloten: dat loopt tot acht uur na de slotbel "
+            f"({einde.astimezone(ZoneInfo('Europe/Brussels')).strftime('%H.%M')} "
+            f"uur bij ons). De minuutbalk zelf verandert niet meer, maar de "
+            f"database laat een later leesmoment niet toe - en terecht: dan is "
+            f"niet meer te zien dat er geen gunstig moment is uitgekozen."
+        )
+
+    return True, "goed", (
+        f"De wisselkoers van {dag.date()} mag vastgelegd worden: de beurs is "
+        f"gesloten en we zitten binnen acht uur na de slotbel."
+    )
+
+
+def leesvenster_in_het_hier(datum) -> Tuple[str, str]:
+    """Het leesvenster in Belgische tijd, om in een melding te zetten."""
+    hier = ZoneInfo("Europe/Brussels")
+    vanaf = (slotmoment(datum) + timedelta(minutes=MARGE_MINUTEN)).astimezone(hier)
+    tot = (slotmoment(datum) + timedelta(hours=LEESVENSTER_UREN)).astimezone(hier)
+    return vanaf.strftime("%H.%M"), tot.strftime("%H.%M")
+
+
 def venster_in_het_hier(datum) -> Tuple[str, str]:
     """Het venster waarin vastleggen mag, in Belgische tijd en gewone taal.
 

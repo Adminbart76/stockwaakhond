@@ -11,6 +11,9 @@ __all__ = [
     "ledger",          # het append-only logboek
     "portfolio",       # de virtuele portefeuille
     "herbalans",       # de doorlopende portefeuille: wisselen zonder nieuw geld
+    "dividend",        # bruto, ex-datum voor het recht, betaaldatum voor het geld
+    "fx",              # de wisselkoers van de uitvoeringsdag, met controlegetal
+    "realistisch",     # de tweede curve: kosten over wat er echt verhandeld is
     "prices",          # koersen ophalen bij Yahoo
     "supabase_io",     # praten met de database
 ]

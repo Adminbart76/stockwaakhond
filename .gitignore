@@ -25,5 +25,8 @@ desktop.ini
 *.tmp
 STREAMLIT_SECRETS_PLAKKEN.txt
 
+# Schermafdrukken van een testbrowser
+.playwright-mcp/
+
 # Uitdraai voor een externe audit
 *-voor-audit.zip

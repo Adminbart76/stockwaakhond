@@ -103,7 +103,8 @@ def test_een_kapot_logboek_is_wel_een_fout():
 def test_een_te_late_wisselkoers_is_wel_een_fout():
     """Te vroeg is wachten, te laat is een probleem voor een mens."""
     meldingen = meldingen_per_afloop(INSTAP)
-    assert komt_voor(meldingen["stop"], "niet meer betrouwbaar")
+    assert komt_voor(meldingen["stop"], "venster om de wisselkoers")
+    assert komt_voor(meldingen["stop"], "beheershandeling")
 
 
 def test_de_dagtaak_scheidt_niets_te_doen_van_een_echt_probleem():
@@ -247,11 +248,59 @@ def test_de_wissel_gebeurt_niet_vanuit_github():
     assert "leg_herbalans_vast" not in WORKFLOW.read_text(encoding="utf-8")
 
 
-def test_dividend_zonder_conventie_stopt_de_wissel():
+def test_een_gemist_dividend_stopt_de_wissel():
+    """De conventie is sinds 7 oktober 2026 bruto en dus geen keuze meer.
+
+    Daarmee verviel de oude blokkade ("kies eerst bruto of netto"). Het gevaar
+    dat die blokkade dekte, is er nog wel: een uitkering die Yahoo kent en onze
+    tabel niet. Dan zou de wissel met te weinig geld vastgelegd worden, en dat
+    ligt daarna voor altijd vast. Daarom hoort dat nu de stopregel te zijn.
+    """
     meldingen = meldingen_per_afloop(WISSEL)
-    assert komt_voor(meldingen["stop"], "conventie ligt niet vast"), (
-        "Stil nul euro dividend meerekenen legt een wissel met een verkeerd "
-        "bedrag voor altijd vast."
+    assert komt_voor(meldingen["stop"], "niet in onze tabel staan"), (
+        "Een dividend dat Yahoo kent en wij niet, hoort de wissel te stoppen."
+    )
+    assert komt_voor(meldingen["stop"], "leg_dividend_vast"), (
+        "De melding hoort te zeggen waarmee je dat dividend vastlegt."
+    )
+
+    tekst = WISSEL.read_text(encoding="utf-8")
+    assert "--dividend=" not in tekst, (
+        "Bruto staat vast; er valt bij een wissel niets meer te kiezen."
+    )
+    assert "net_per_share_usd" not in tekst, (
+        "De officiele curve rekent bruto. Het nettobedrag is informatie."
+    )
+
+
+def test_het_dividend_gaat_op_de_betaaldatum_mee_en_niet_op_de_exdatum():
+    """Op de ex-datum ontstaat het recht; het geld is er pas op de betaaldatum.
+
+    Zou de wissel op de ex-datum rekenen, dan belegt de portefeuille geld dat ze
+    nog niet heeft - en bij een stijgende markt rekent ze zich daarmee rijk.
+    """
+    tekst = WISSEL.read_text(encoding="utf-8")
+    assert "betaald_tussen" in tekst, (
+        "De selectie hoort op de betaaldatum te gebeuren."
+    )
+    assert "ex_date=gt." not in tekst, (
+        "De oude selectie op ex-datum hoort weg te zijn."
+    )
+
+
+def test_de_wisselkoers_komt_uit_de_minuutbalk_met_een_controlegetal():
+    tekst = WISSEL.read_text(encoding="utf-8")
+    assert "wisselkoers_van" in tekst, (
+        "De wisselkoers hoort uit sw/fx.py te komen: de afgesloten minuutbalk "
+        "van de slotbel."
+    )
+    assert "haal_wisselkoers" not in tekst, (
+        "De oude dagbalk hing af van het moment van klikken."
+    )
+    meldingen = meldingen_per_afloop(WISSEL)
+    assert komt_voor(meldingen["stop"], "controlegetal"), (
+        "Zonder het onafhankelijke controlegetal van de ECB hoort er niets "
+        "vastgelegd te worden."
     )
 
 

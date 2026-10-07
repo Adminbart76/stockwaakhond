@@ -21,10 +21,12 @@ import altair as alt
 import pandas as pd
 import streamlit as st
 
+from sw import dividend as div
 from sw import herbalans as hb
 from sw import ledger as led
 from sw import portfolio as pf
 from sw import prices as pr
+from sw import realistisch as rl
 from sw.strategy import STRATEGY_HASH, sha256_text
 from sw.supabase_io import Supabase, lees_instellingen
 
@@ -110,6 +112,7 @@ def haal_vaste_gegevens() -> dict:
     return {
         "signalen": db.select("signals", "select=*&order=seq.asc"),
         "uitvoeringen": db.select("executions", "select=*"),
+        "dividenden": db.select("dividends", "select=*&order=ex_date.asc"),
     }
 
 
@@ -318,6 +321,44 @@ else:
     except Exception:
         live, tijdstip, fx_live = {}, None, None
 
+    # Dividend telt sinds 7 oktober 2026 aan beide kanten mee, bruto. Het recht
+    # ontstaat op de ex-datum en het geld komt op de betaaldatum; SPY herbelegt
+    # zijn uitkering in SPY zelf. Zie sw/dividend.py.
+    dividenden = gegevens.get("dividenden") or []
+    onze_dividenden, spy_dividenden, dividend_fout = [], [], None
+    spy_koersreeks = None
+    if not dagkoersen.empty and "SPY" in dagkoersen.columns:
+        spy_koersreeks = dagkoersen["SPY"]
+    try:
+        onze_dividenden = div.portefeuille_dividenden(uitvoeringen, dividenden)
+        spy_dividenden = div.spy_dividenden(uitvoeringen, dividenden, spy_koersreeks)
+    except Exception as fout:
+        dividend_fout = str(fout)
+
+    vandaag = pd.Timestamp.today().normalize()
+    eerste_bm = float(eerste["benchmark"]["shares"])
+    spy_stand = div.spy_stand_op(eerste_bm, spy_dividenden, vandaag)
+    dividend_usd_nu = div.som(
+        div.betaald_tussen(onze_dividenden, uitvoering["execution_date"], vandaag))
+
+    # Wat er in totaal is uitgekeerd sinds de start. Dat is iets anders dan wat
+    # er NU als geld staat: aan onze kant is het bij elke wissel meebelegd, bij
+    # SPY is het in SPY-aandelen omgezet. Het scherm hoort het totaal te noemen,
+    # anders lijkt het alsof een kant niets gekregen heeft.
+    start_dag = pd.Timestamp(eerste["execution_date"]) - pd.Timedelta(days=1)
+    dividend_betaald_totaal = div.som(
+        div.betaald_tussen(onze_dividenden, start_dag, vandaag))
+    spy_betaald_totaal = div.som(
+        div.betaald_tussen(spy_dividenden, start_dag, vandaag))
+
+    # De maatstaf heeft nu mogelijk meer aandelen dan bij de laatste wissel: die
+    # zijn met zijn eigen dividend bijgekocht.
+    # Het contante deel komt hieronder apart mee als spy_dividend_eur. Hier dus
+    # op nul, anders zou hetzelfde geld twee keer meegeteld worden.
+    instap["benchmark"] = dict(instap["benchmark"])
+    instap["benchmark"]["shares"] = spy_stand["aandelen"]
+    instap["benchmark"]["cash_usd"] = 0.0
+
     # De rangorde: eerst de koers van nu, anders de laatst vastgelegde
     # slotkoers (en dan zegt het scherm van welke dag die is), en is er geen
     # van beide, dan wordt er geen bedrag getoond. Een bedrag dat eruitziet als
@@ -383,6 +424,8 @@ else:
             instap, koersen_nu, fx_nu,
             datum=str(pd.Timestamp.today().date()),
             spy_koers_usd=koersen_nu["SPY"],
+            dividend_eur=dividend_usd_nu / fx_nu,
+            spy_dividend_eur=spy_stand["contant_usd"] / fx_nu,
         )
 
 if uitvoering is not None and waardering is not None:
@@ -400,13 +443,36 @@ if uitvoering is not None and waardering is not None:
                    "beursbedrijven volgt. Het is de maatstaf: haalt de "
                    "strategie meer dan dit, dan was het kiezen de moeite waard.")
 
-    # Zeggen wat er NIET in zit. "Beide kanten missen evenveel" is waar, maar
-    # wie dat niet weet, leest deze bedragen als het volledige rendement.
-    st.caption(
-        "Dit zijn alleen de koersen. Uitgekeerd dividend telt bij geen van de "
-        "twee mee: niet bij de vijf aandelen en niet bij SPY. Allebei de "
-        "bedragen zouden er dus iets hoger uitkomen."
-    )
+    # Zeggen wat er wel en niet in zit. Dividend telt sinds 7 oktober 2026 aan
+    # beide kanten mee; zolang er nog niets is uitgekeerd, hoort dat er ook te
+    # staan - anders leest iemand deze bedragen als "dividend zit er niet in".
+    if dividend_fout:
+        st.warning(
+            "**Het uitgekeerde dividend kon niet meegerekend worden**, dus "
+            "hieronder staan alleen de koersen. Dat geldt voor beide kanten."
+            "\n\nTechnische melding: " + dividend_fout
+        )
+    elif dividend_betaald_totaal or spy_betaald_totaal:
+        st.caption(
+            "Sinds de start is er "
+            f"{eur(dividend_betaald_totaal / fx_nu)} dividend uitgekeerd op de "
+            f"vijf aandelen en {eur(spy_betaald_totaal / fx_nu)} op SPY, allebei "
+            "bruto (dus voor belasting). Beide bedragen zitten in de cijfers "
+            "hierboven. SPY koopt er op de betaaldag meer SPY mee; bij de vijf "
+            "aandelen blijft het geld staan tot de volgende wissel"
+            + (f" (nu {eur(waardering.dividend_eur)})."
+               if waardering.dividend_eur else ".")
+        )
+    elif onze_dividenden or spy_dividenden:
+        st.caption(
+            "Er is dividend toegekend, maar het geld is nog niet uitbetaald. "
+            "Zodra de betaaldag voorbij is, telt het bij beide kanten mee, bruto."
+        )
+    else:
+        st.caption(
+            "Er is sinds de start nog geen dividend uitgekeerd. Zodra dat "
+            "gebeurt, telt het bij beide kanten mee: bruto, dus voor belasting."
+        )
 
     # Een verschil van enkele honderdsten van een procent is ruis, geen
     # voorsprong. Dat zo noemen zou een leek een conclusie laten trekken die
@@ -472,8 +538,13 @@ if uitvoering is not None:
     else:
         try:
             # Over de hele keten: op elke wisseldag neemt het nieuwe mandje het
-            # over van het oude, met dezelfde 1.000 euro als meetlat.
-            verloop = hb.bouw_verloop_keten(uitvoeringen, dagkoersen, fx_reeks)
+            # over van het oude, met dezelfde 1.000 euro als meetlat. Dividend
+            # komt op de BETAALDAG binnen; bij SPY wordt het herbelegd.
+            verloop = hb.bouw_verloop_keten(
+                uitvoeringen, dagkoersen, fx_reeks,
+                dividend_usd_per_dag=div.contant_per_betaaldag(onze_dividenden),
+                spy_events=spy_dividenden,
+            )
         except Exception as fout:
             st.warning(
                 "Het verloop kon op dit moment niet berekend worden."
@@ -534,8 +605,13 @@ if uitvoering is not None:
                "SPY blijft gewoon liggen en betaalt dus ook niets voor die "
                "wissels."
                if len(uitvoeringen) > 1 else "")
-            + "  \nDividend is bij geen van de twee meegerekend: dit zijn de "
-              "koersen."
+            + ("  \nUitgekeerd dividend telt bij beide kanten mee, bruto, op de "
+               "dag dat het geld er werkelijk is. SPY belegt zijn dividend "
+               "opnieuw in SPY; bij de vijf aandelen blijft het geld staan tot "
+               "de volgende wissel."
+               if (onze_dividenden or spy_dividenden) else
+               "  \nEr is nog geen dividend uitgekeerd. Zodra dat gebeurt, telt "
+               "het bij beide kanten mee, bruto.")
             + ("  \nDe slotkoersen in deze grafiek liggen vast in onze eigen "
                "database en veranderen niet meer achteraf."
                if koersbron == "eigen database" else
@@ -562,6 +638,97 @@ if uitvoering is not None:
         st.info(
             "De portefeuille is net ingestapt. Vanaf de volgende beursdag "
             "verschijnt hier het verloop per dag."
+        )
+
+
+# ------------------------------------------------- de tweede, strengere curve
+# Dezelfde strategie, maar met de kosten die je bij een wissel werkelijk
+# betaalt: 0,15 % over alles wat er van hand verwisselt. De officiële curve
+# hierboven rekent de eenzijdige omzet van de bevroren opzet en blijft precies
+# zoals ze is - er wordt niets herrekend. Zie sw/realistisch.py.
+if uitvoering is not None and len(uitvoeringen) > 1 and len(verloop) >= 2:
+    st.header("En met de volle kosten gerekend?")
+
+    papier = pd.DataFrame()
+    try:
+        papier = rl.bouw_verloop_papier(
+            uitvoeringen, dagkoersen, fx_reeks,
+            dividenden=gegevens.get("dividenden") or [],
+            spy_events=spy_dividenden,
+        )
+    except Exception as fout:
+        st.caption("Deze tweede curve kon nu niet berekend worden: " + str(fout))
+
+    if len(papier) >= 2:
+        laatste_dag = papier.index[-1]
+        officieel_eur = float(verloop["portefeuille_eur"].iloc[-1])
+        papier_eur = float(papier["portefeuille_eur"].iloc[-1])
+
+        st.markdown(
+            "Bij een wissel verkoop je vijf aandelen en koop je vijf andere. De "
+            "vastgelegde reeks rekent daar de gangbare, eenzijdige kost voor "
+            "aan; in werkelijkheid betaal je voor beide kanten. Hieronder staat "
+            "wat dat scheelt. **De officiële reeks hierboven verandert hier "
+            "niet door** - dit is een tweede berekening ernaast, geen correctie."
+        )
+
+        k1, k2 = st.columns(2)
+        k1.metric("Officiële reeks", eur(officieel_eur),
+                  help="Zoals vastgelegd bij elke wissel. Deze blijft de "
+                       "officiële uitkomst van de forward-test.")
+        k2.metric("Met de volle kosten", eur(papier_eur),
+                  delta=eur_verschil(papier_eur - officieel_eur),
+                  help="Dezelfde dagen, dezelfde aandelen, dezelfde koersen. "
+                       "Alleen de transactiekost is gerekend over alles wat er "
+                       "werkelijk verhandeld is.")
+
+        lang2 = pd.concat([
+            pd.DataFrame({"datum": verloop.index,
+                          "waarde": verloop["portefeuille_eur"],
+                          "reeks": "Officiële reeks"}),
+            pd.DataFrame({"datum": papier.index,
+                          "waarde": papier["portefeuille_eur"],
+                          "reeks": "Met de volle kosten"}),
+        ]).reset_index(drop=True)
+        schaal2 = alt.Scale(domain=["Officiële reeks", "Met de volle kosten"],
+                            range=[KLEUR_SW, "#6b7280"])
+
+        st.altair_chart(
+            alt.Chart(lang2).mark_line(strokeWidth=2).encode(
+                x=alt.X("datum:T", title=None,
+                        axis=alt.Axis(format="%d/%m", grid=False)),
+                y=alt.Y("waarde:Q", title="waarde in euro",
+                        scale=alt.Scale(zero=False),
+                        axis=alt.Axis(format=",.0f")),
+                color=alt.Color("reeks:N", title=None, scale=schaal2,
+                                legend=alt.Legend(orient="top",
+                                                  direction="horizontal")),
+                # De officiële reeks is de doorlopende lijn. De tweede
+                # berekening is gestippeld: zo is in één oogopslag te zien welke
+                # van de twee de vastgelegde is.
+                strokeDash=alt.StrokeDash(
+                    "reeks:N", legend=None,
+                    scale=alt.Scale(
+                        domain=["Officiële reeks", "Met de volle kosten"],
+                        range=[[1, 0], [6, 3]])),
+                tooltip=[
+                    alt.Tooltip("datum:T", title="datum", format="%d/%m/%Y"),
+                    alt.Tooltip("reeks:N", title=""),
+                    alt.Tooltip("waarde:Q", title="waarde in euro", format=",.2f"),
+                ],
+            ).properties(height=280),
+            use_container_width=True,
+        )
+        st.caption(
+            "De twee reeksen beginnen gelijk: bij de instap stond alles nog "
+            "contant en werd er alleen gekocht, dus toen kostte het in beide "
+            "berekeningen hetzelfde. Ze lopen uiteen vanaf de eerste wissel. "
+            "De Belgische beurstaks zit in geen van de twee."
+        )
+    elif len(papier) == 1:
+        st.caption(
+            "Zolang er nog niet gewisseld is, zijn de twee berekeningen gelijk: "
+            "bij de instap werd er alleen gekocht."
         )
 
 
