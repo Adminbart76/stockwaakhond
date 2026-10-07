@@ -1,10 +1,19 @@
 name: Dagelijkse koersen vastleggen
 
-# Draait elke beursdag na de slotbel in New York.
+# Draait elke beursdag na de slotbel in New York, drie keer.
 #
-# 21:30 UTC werkt het hele jaar door: in de Amerikaanse zomertijd sluit de
-# beurs om 20:00 UTC, in de wintertijd om 21:00 UTC. Het script controleert
-# zelf of de beurs echt gesloten is en doet niets wanneer dat niet zo is.
+# Waarom drie keer, en niet een keer om 21:30 UTC zoals eerst: het venster
+# waarin de wisselkoers van die dag opgehaald mag worden, loopt van twintig
+# minuten na de slotbel in New York tot middernacht in Londen. In de
+# Amerikaanse zomertijd is dat 20.20-23.00 UTC, dus nog geen drie uur. GitHub
+# start een geplande taak geregeld later dan gevraagd, en op 7 oktober 2026
+# gebeurde dat meteen de eerste keer: gepland om 21:30, gestart om 00:57, en
+# toen was het venster dicht.
+#
+# Met drie tijdstippen is er ruimte voor zo'n vertraging. Een ronde die te
+# vroeg is (in de wintertijd is 20:25 nog voor de slotbel) doet gewoon niets
+# en eindigt groen; een ronde die alles al vastgelegd aantreft ook. Het script
+# controleert zelf of de beurs echt gesloten is.
 #
 # Dit houdt meteen het gratis Supabase-project wakker. Dat pauzeert na zeven
 # dagen zonder activiteit, en dan is het dashboard tijdelijk onbruikbaar.
@@ -28,7 +37,9 @@ name: Dagelijkse koersen vastleggen
 
 on:
   schedule:
-    - cron: "30 21 * * 1-5"
+    - cron: "25 20 * * 1-5"   # net na de slotbel in de Amerikaanse zomertijd
+    - cron: "25 21 * * 1-5"   # net na de slotbel in de wintertijd
+    - cron: "25 22 * * 1-5"   # laatste kans voor het venster in Londen sluit
   workflow_dispatch:        # ook met de hand te starten vanuit GitHub
 
 jobs:

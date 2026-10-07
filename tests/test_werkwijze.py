@@ -196,6 +196,29 @@ def test_een_onvolledige_dag_is_een_fout():
     assert not komt_voor(meldingen["klaar"], "niet compleet")
 
 
+def test_de_dagtaak_krijgt_meerdere_kansen_per_avond():
+    """Het venster voor de wisselkoers is in de zomertijd nog geen drie uur.
+
+    GitHub start een geplande taak geregeld later dan gevraagd - op
+    7 oktober 2026 meteen de eerste keer, met ruim drie uur. Met een enkel
+    tijdstip is zo'n vertraging meteen een dag zonder wisselkoers.
+    """
+    regels = WORKFLOW.read_text(encoding="utf-8").splitlines()
+    tijden = [r for r in regels if r.strip().startswith("- cron:")]
+    assert len(tijden) >= 3, (
+        "Er hoort meer dan een starttijd te staan, anders is een vertraging van "
+        "GitHub meteen een gemiste wisselkoers."
+    )
+
+
+def test_een_hik_bij_yahoo_is_nog_geen_ontbrekende_koers():
+    tekst = SNAPSHOT.read_text(encoding="utf-8")
+    assert "tweede poging" in tekst, (
+        "Yahoo laat geregeld een enkel aandeel weg uit een verzoek om meerdere "
+        "tegelijk. Dat hoort apart opnieuw gevraagd te worden voor de taak faalt."
+    )
+
+
 def test_een_ontbrekende_wisselkoers_binnen_het_venster_is_een_fout():
     meldingen = meldingen_per_afloop(SNAPSHOT)
     assert komt_voor(meldingen["stop"], "niet bruikbaar opgehaald"), (

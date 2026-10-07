@@ -176,29 +176,66 @@ if laatste_dag.normalize() != vandaag:
 
 kop("4. Is de dag compleet?")
 
+
+def haal_uit(frames, ticker):
+    """De echte en de herrekende slotkoers van die dag, of None."""
+    kaal, bijgesteld = frames
+    waarde = float(kaal.at[laatste_dag, ticker]) if ticker in kaal.columns else None
+    adj = (float(bijgesteld.at[laatste_dag, ticker])
+           if ticker in bijgesteld.columns and laatste_dag in bijgesteld.index else None)
+    if waarde is None or waarde != waarde or waarde <= 0:
+        return None, None
+    return waarde, (adj if adj == adj else None)
+
+
 koersen = []
 ontbreekt = []
 for t in tickers:
-    waarde_echt = float(echt.at[laatste_dag, t]) if t in echt.columns else None
-    waarde_adj = float(herrekend.at[laatste_dag, t]) if t in herrekend.columns else None
-    if waarde_echt is None or waarde_echt != waarde_echt or waarde_echt <= 0:
+    waarde_echt, waarde_adj = haal_uit((echt, herrekend), t)
+    if waarde_echt is None:
         ontbreekt.append(t)
         continue
     koersen.append({
         "ticker": t,
         "close_raw": waarde_echt,
-        "close_adjusted": (waarde_adj if waarde_adj == waarde_adj else None),
+        "close_adjusted": waarde_adj,
         "source": "Yahoo Finance dagslotkoers",
     })
     print(f"      {t:<6} {waarde_echt:>10.4f} USD")
+
+# Yahoo laat geregeld een enkel aandeel weg uit een verzoek om meerdere
+# tegelijk. Dat is geen echt ontbrekende koers maar een hik, en hij is op
+# 7 oktober 2026 meteen de eerste keer opgetreden (MRNA). Daarom: wie ontbreekt,
+# wordt nog een keer apart gevraagd voor de taak faalt.
+if ontbreekt:
+    print(f"   {', '.join(ontbreekt)} ontbreekt; nog een keer apart proberen")
+    nog_steeds = []
+    for t in ontbreekt:
+        try:
+            waarde_echt, waarde_adj = haal_uit(pr.haal_koersen([t], start=vanaf), t)
+        except Exception as fout:
+            print(f"      {t:<6} niet gelukt: {fout}")
+            waarde_echt = None
+        if waarde_echt is None:
+            nog_steeds.append(t)
+            continue
+        koersen.append({
+            "ticker": t,
+            "close_raw": waarde_echt,
+            "close_adjusted": waarde_adj,
+            "source": "Yahoo Finance dagslotkoers",
+        })
+        print(f"      {t:<6} {waarde_echt:>10.4f} USD   (tweede poging)")
+    ontbreekt = nog_steeds
 
 if ontbreekt:
     stop(
         "deze dag is niet compleet: geen bruikbare slotkoers voor "
         + ", ".join(ontbreekt) + ".\n"
         "Er wordt geen halve dag vastgelegd: dat geeft een gat in de grafiek\n"
-        "dat niemand opmerkt en dat niet meer te herstellen is. Draai deze taak\n"
-        "opnieuw, of kijk na of het aandeel bij Yahoo nog dezelfde naam heeft."
+        "dat niemand opmerkt. Start de taak opnieuw bij Actions (Run workflow);\n"
+        "lukt het die dag niet meer, dan kan de dag later met de hand\n"
+        "bijgeschreven worden met scripts/herstel_dagkoers.py."
     )
 
 # De wisselkoers mag alleen vastgelegd worden op de dag zelf, na de slotbel.
@@ -278,14 +315,33 @@ print("Uitgevoerd om " + datetime.now(timezone.utc).isoformat())
 print("=" * 70)
 
 if fx_gemist:
+    # Eerst kijken of hij er misschien al staat. Deze taak draait een paar keer
+    # per avond; de eerste keer binnen het venster legt de wisselkoers vast, en
+    # dan hoeft een latere ronde geen alarm meer te slaan over iets wat gewoon
+    # in orde is.
+    staat_er_al = False
+    try:
+        staat_er_al = bool(db.select(
+            "fx_snapshots",
+            f"select=rate&pair=eq.EURUSD&snapshot_date=eq.{laatste_dag.date()}"))
+    except Exception as fout:
+        print(f"   (kon niet nakijken of de wisselkoers er al staat: {fout})")
+
     print()
     print("=" * 70)
-    print(f"LET OP: de wisselkoers van {laatste_dag.date()} ontbreekt.")
-    print(fx_gemist)
-    print()
-    print("De slotkoersen van die dag staan wel vast. Dit gebeurt als deze taak")
-    print("te laat draait: na middernacht in Londen. De geplande tijd (21:30 UTC)")
-    print("valt het hele jaar door ruim binnen het venster, dus kijk na waarom")
-    print("deze keer later was.")
-    print("=" * 70)
-    sys.exit(1)
+    if staat_er_al:
+        print(f"De wisselkoers van {laatste_dag.date()} stond er al, dus er is")
+        print("niets misgelopen. Deze ronde kwam alleen te laat om hem zelf nog")
+        print("vast te leggen.")
+        print("=" * 70)
+    else:
+        print(f"LET OP: de wisselkoers van {laatste_dag.date()} ontbreekt.")
+        print(fx_gemist)
+        print()
+        print("De slotkoersen van die dag staan wel vast. Dit gebeurt als deze taak")
+        print("te laat draait: na middernacht in Londen. De taak start meerdere")
+        print("keren per avond, dus als dit gebeurt, zijn ze allemaal te laat")
+        print("geweest. De koers van die dag moet dan uit een andere bron komen")
+        print("en met de hand bijgeschreven worden met scripts/herstel_dagkoers.py.")
+        print("=" * 70)
+        sys.exit(1)

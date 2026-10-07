@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 128, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 130, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -406,12 +406,20 @@ en er zelf naar te kijken.
    want zonder de nieuwe regels zou er een verzonnen wisselkoers in de
    geschiedenis kunnen belanden.
 
-2. **De eerste geplande dagtaak nakijken.** Alles staat erin en is handmatig
-   bewezen, maar de taak van 21:30 UTC heeft nog niet uit zichzelf gedraaid.
-   Kijk de eerstvolgende beursdag bij Actions of ze groen is en of er een
-   wisselkoers bij staat. Draait ze ooit na middernacht in Londen, dan slaat ze
-   de wisselkoers over en wordt ze rood: de slotkoersen staan dan wel vast, maar
-   die dag mist een wisselkoers en dat hoort opgemerkt te worden.
+2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+   ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
+   geworden, om twee redenen die allebei verholpen zijn:
+
+   - GitHub startte de taak van 21:30 UTC pas om 00:57 UTC. Toen was het
+     venster voor de wisselkoers (tot middernacht in Londen) dicht. De taak
+     draait nu drie keer per avond (20:25, 21:25 en 22:25 UTC), en een ronde
+     die alles al vastgelegd aantreft wordt niet meer rood.
+   - Yahoo leverde in dat ene verzoek geen koers voor MRNA. Een ontbrekend
+     aandeel wordt nu nog een keer apart gevraagd voor de taak faalt.
+
+   Er is niets verkeerds vastgelegd: de koersen van 6 oktober stonden er al
+   via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
+   of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
 3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
