@@ -15,7 +15,9 @@ import pandas as pd
 import pytest
 
 from sw import dividend as div
+from sw import fx
 from sw import portfolio as pf
+from tests.hulp_fx import bewijs_voor
 from sw.strategy import sha256_text
 
 PROJECT = Path(__file__).resolve().parent.parent
@@ -324,14 +326,7 @@ def test_zonder_wisselkoersbewijs_komt_er_geen_veld_bij(instap):
 
 
 def test_met_wisselkoersbewijs_staan_de_velden_er_wel_in():
-    bewijs = {
-        "fx_bar_start": "2026-11-04T15:59:00-05:00",
-        "fx_bar_end": "2026-11-04T16:00:00-05:00",
-        "fx_bar_normaal": True,
-        "fx_control_source": "ECB", "fx_control_date": "2026-11-04",
-        "fx_control_rate": 1.1612, "fx_control_same_day": True,
-        "fx_control_deviation_pct": 0.19,
-    }
+    bewijs = bewijs_voor("2026-10-06", FX)
     met = pf.bereken_instap(
         entry_hash="test", execution_date="2026-10-06", tickers=TICKERS,
         koersen_usd=KOERSEN, fx_eurusd=FX, spy_koers_usd=SPY,
@@ -339,6 +334,21 @@ def test_met_wisselkoersbewijs_staan_de_velden_er_wel_in():
     inhoud = json.loads(met["canonical_payload"])
     for naam, waarde in bewijs.items():
         assert inhoud[naam] == waarde
+
+
+def test_een_bewijs_van_een_andere_dag_wordt_ook_bij_een_instap_geweigerd():
+    """Half bewijs is geen bewijs: wordt het meegegeven, dan moet het kloppen.
+
+    De minuutbalk van 4 november hoort niet bij een instap van 6 oktober. Zonder
+    deze controle zou een record een balk kunnen dragen die op een heel andere
+    dag en zelfs in een andere tijdzone eindigde.
+    """
+    with pytest.raises(fx.WisselkoersbewijsOntbreekt, match="na de slotbel"):
+        pf.bereken_instap(
+            entry_hash="test", execution_date="2026-10-06", tickers=TICKERS,
+            koersen_usd=KOERSEN, fx_eurusd=FX, spy_koers_usd=SPY,
+            fx_source="test", fx_asof="2026-10-06T20:54:00+00:00",
+            fx_bewijs=bewijs_voor("2026-11-04", FX))
 
 
 def test_een_verzonnen_veld_komt_het_bewijs_niet_in():

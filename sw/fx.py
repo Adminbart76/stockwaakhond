@@ -337,3 +337,165 @@ def wisselkoers_van(datum, gelezen_op: Optional[pd.Timestamp] = None) -> dict:
         "balk": balk,
         "ecb": ecb,
     }
+
+
+# ------------------------------------------- het bewijs achteraf narekenen
+class WisselkoersbewijsOntbreekt(ValueError):
+    """Een wissel zonder volledig wisselkoersbewijs wordt niet gebouwd.
+
+    Dit is de tegenhanger van GeenWisselkoers. Daar is er geen bruikbare balk;
+    hier is er wel een record, maar het draagt zijn bewijs niet mee. Allebei
+    hard, en om dezelfde reden: een uitvoering is voorgoed vastgelegd, en wat er
+    op dat moment niet in staat, kan later niemand nog narekenen. Yahoo bewaart
+    minuutgegevens ongeveer dertig dagen.
+    """
+
+
+def _tijdstip(bewijs: dict, naam: str) -> pd.Timestamp:
+    waarde = bewijs.get(naam)
+    stempel = pd.Timestamp(waarde)
+    if stempel.tz is None:
+        raise WisselkoersbewijsOntbreekt(
+            f"'{naam}' ({waarde}) heeft geen tijdzone. Zonder tijdzone hangt "
+            "het moment af van de instellingen van de computer die het leest, "
+            "en dan hoort de koers bij een andere minuut voor iedere lezer."
+        )
+    return stempel.tz_convert(BEURS)
+
+
+def controleer_bewijs(
+    bewijs: Optional[Dict[str, object]],
+    uitvoeringsdag,
+    fx_rate: float,
+    terugval_minuten: int = TERUGVAL_MINUTEN,
+    grens_pct: float = ECB_GRENS_PCT,
+) -> dict:
+    """Rekent het wisselkoersbewijs van een uitvoering na, zonder internet.
+
+    Dit is dezelfde lijst controles als in sql/05_fx_bewijs_verplicht.sql, zodat
+    de code en de database niet uit elkaar kunnen lopen. Hier staat ze zodat een
+    wissel al op de computer van Bart strandt en er geen record ontstaat dat de
+    database daarna weigert - het lokale bestand is de bron van waarheid, en een
+    regel die daar wel in staat en in de database niet, is niet meer te herstellen.
+
+    Geeft de nagerekende feiten terug. Weigert bij het kleinste gat.
+    """
+    bewijs = dict(bewijs or {})
+
+    ontbreekt = sorted(
+        naam for naam in BEWIJSVELDEN
+        if bewijs.get(naam) is None or bewijs.get(naam) == ""
+    )
+    if ontbreekt:
+        raise WisselkoersbewijsOntbreekt(
+            "Het wisselkoersbewijs van deze uitvoering is niet volledig. "
+            "Ontbreekt: " + ", ".join(ontbreekt) + ". Een wissel hoort de "
+            "minuutbalk van de slotbel en het ECB-controlegetal mee te dragen; "
+            "haal ze op met sw.fx.wisselkoers_van()."
+        )
+    vreemd = sorted(set(bewijs) - BEWIJSVELDEN)
+    if vreemd:
+        raise WisselkoersbewijsOntbreekt(
+            "Dit hoort niet bij het wisselkoersbewijs: " + ", ".join(vreemd)
+        )
+
+    begin = _tijdstip(bewijs, "fx_bar_start")
+    eind = _tijdstip(bewijs, "fx_bar_end")
+    slotbel = slotbel_op(uitvoeringsdag)
+
+    if eind <= begin:
+        raise WisselkoersbewijsOntbreekt(
+            f"De minuutbalk loopt van {begin} tot {eind}; het einde ligt niet "
+            "na het begin."
+        )
+    if eind - begin != timedelta(minutes=1):
+        raise WisselkoersbewijsOntbreekt(
+            f"De balk van {begin} tot {eind} duurt geen minuut. De regel gaat "
+            "over 1-minuutbalken; een langer interval is een andere koers."
+        )
+    if eind > slotbel:
+        raise WisselkoersbewijsOntbreekt(
+            f"De balk eindigt om {eind} en dat is na de slotbel van "
+            f"{slotbel}. Zo'n balk bevat handel die de slotkoersen niet kennen."
+        )
+    if eind < slotbel - timedelta(minutes=terugval_minuten):
+        raise WisselkoersbewijsOntbreekt(
+            f"De balk eindigt om {eind}, meer dan {terugval_minuten} minuten "
+            f"voor de slotbel van {slotbel}. Daarbuiten hoort een mens ernaar "
+            "te kijken."
+        )
+
+    normaal = bewijs["fx_bar_normaal"]
+    if not isinstance(normaal, bool):
+        raise WisselkoersbewijsOntbreekt(
+            "fx_bar_normaal hoort waar of niet waar te zijn, niet "
+            f"'{normaal}'."
+        )
+    if normaal is not (eind == slotbel):
+        raise WisselkoersbewijsOntbreekt(
+            f"fx_bar_normaal zegt {normaal}, terwijl de balk om {eind} eindigt "
+            f"en de slotbel om {slotbel} klinkt. Het ene zegt dat het de "
+            "normale balk was en het andere niet."
+        )
+
+    bron = bewijs["fx_control_source"]
+    if not isinstance(bron, str) or not bron.strip():
+        raise WisselkoersbewijsOntbreekt(
+            "Er staat geen bron bij het controlegetal. Zonder bron kan een "
+            "latere lezer het niet opnieuw opvragen."
+        )
+
+    controle = float(bewijs["fx_control_rate"])
+    if controle <= 0:
+        raise WisselkoersbewijsOntbreekt(
+            f"Het controlegetal van de wisselkoers is geen koers ({controle})."
+        )
+
+    dag = pd.Timestamp(uitvoeringsdag).normalize()
+    controledag = pd.Timestamp(bewijs["fx_control_date"]).normalize()
+    if controledag > dag:
+        raise WisselkoersbewijsOntbreekt(
+            f"Het controlegetal is van {controledag.date()} en dat is na de "
+            f"uitvoeringsdag {dag.date()}. Een koers van later kan de koers van "
+            "die dag niet controleren."
+        )
+
+    zelfde = bewijs["fx_control_same_day"]
+    if not isinstance(zelfde, bool):
+        raise WisselkoersbewijsOntbreekt(
+            "fx_control_same_day hoort waar of niet waar te zijn, niet "
+            f"'{zelfde}'."
+        )
+    if zelfde is not (controledag == dag):
+        raise WisselkoersbewijsOntbreekt(
+            f"fx_control_same_day zegt {zelfde}, terwijl het controlegetal van "
+            f"{controledag.date()} is en de uitvoering van {dag.date()}."
+        )
+
+    opgeslagen = float(bewijs["fx_control_deviation_pct"])
+    opnieuw = vergelijk(float(fx_rate), controle, grens_pct)
+    if abs(opgeslagen - opnieuw["afwijking_pct"]) > 1e-5:
+        raise WisselkoersbewijsOntbreekt(
+            f"Er staat {opgeslagen:+.6f} procent afwijking in het bewijs, maar "
+            f"{fx_rate} tegen {controle} geeft "
+            f"{opnieuw['afwijking_pct']:+.6f} procent. Het opgeslagen getal "
+            "klopt niet met de twee koersen waar het tussen staat."
+        )
+    if not opnieuw["binnen_grens"]:
+        raise WisselkoersbewijsOntbreekt(
+            f"De wisselkoers wijkt {opnieuw['afwijking_pct']:+.3f} procent af "
+            f"van het controlegetal, meer dan de grens van {grens_pct:.0f} "
+            "procent. Zo groot is geen dagbeweging."
+        )
+
+    return {
+        "bar_start": begin,
+        "bar_end": eind,
+        "slotbel": slotbel,
+        "seconden_voor_slotbel": int((slotbel - eind).total_seconds()),
+        "normaal": normaal,
+        "controle_koers": controle,
+        "controle_datum": str(controledag.date()),
+        "controle_zelfde_dag": zelfde,
+        "afwijking_pct": opnieuw["afwijking_pct"],
+    }

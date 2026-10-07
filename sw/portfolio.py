@@ -55,6 +55,7 @@ from typing import Dict, List, Optional
 import pandas as pd
 
 from .fx import BEWIJSVELDEN as FX_BEWIJSVELDEN
+from .fx import controleer_bewijs as controleer_fx_bewijs
 from .strategy import canonical_json, sha256_text
 
 STARTKAPITAAL_EUR = 1000.0
@@ -144,6 +145,13 @@ def bereken_instap(
                 + ", ".join(sorted(FX_BEWIJSVELDEN))
             )
         payload[naam] = waarde
+
+    # Bij een instap is het bewijs niet verplicht: die van 6 oktober 2026 kende
+    # de regel van de minuutbalk nog niet en blijft precies zoals ze is. Wordt
+    # het wel meegegeven, dan hoort het volledig te zijn en te kloppen - half
+    # bewijs is geen bewijs.
+    if fx_bewijs:
+        controleer_fx_bewijs(fx_bewijs, execution_date, payload["fx_rate"])
 
     canoniek = canonical_json(payload)
     volledig = dict(payload)

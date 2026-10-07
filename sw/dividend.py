@@ -39,6 +39,12 @@ op een uitvoeringsdag, dan was het oude mandje die dag in bezit en het nieuwe
 nog niet. De functies hieronder kijken daarom naar de laatste uitvoering die
 STRIKT VOOR de ex-dag ligt.
 
+Dezelfde regel geldt voor de SPY-aandelen die met herbelegd dividend gekocht
+zijn. Die worden gekocht tegen de slotkoers van de herbelegdag, dus een
+herbelegging die op een ex-dag valt, geeft geen recht op het dividend van die
+ex-dag. Komt een betaaldag van het ene dividend toevallig op de ex-dag van het
+volgende, dan tellen de nieuwe aandelen pas vanaf het dividend daarna mee.
+
 SPY herbelegt, wij ook - maar op een andere manier
 ==================================================
 Aan onze kant blijft het dividend contant staan tot de volgende wissel en wordt
@@ -224,8 +230,9 @@ def spy_dividenden(
     """Het dividend van SPY, en wanneer het herbelegd is.
 
     Per uitkering: het aantal SPY-aandelen op de ex-dag (inclusief wat er bij
-    eerdere herbeleggingen is bijgekomen), het bedrag, en de dag waarop dat
-    bedrag tegen de slotkoers in SPY is omgezet.
+    eerdere herbeleggingen is bijgekomen, zolang die STRIKT VOOR de ex-dag
+    plaatsvonden), het bedrag, en de dag waarop dat bedrag tegen de slotkoers in
+    SPY is omgezet.
 
     Is er nog geen slotkoers op of na de betaaldag, dan staat het bedrag contant
     en wacht het. Zo kan er nooit herbelegd worden tegen een koers die nog niet
@@ -247,9 +254,15 @@ def spy_dividenden(
         if rij["ex_date"] <= begin_dag:
             continue
 
+        # STRIKT voor de ex-dag, met dezelfde reden als bij onze eigen vijf:
+        # aandelen die pas op de ex-dag zelf tegen de slotkoers gekocht zijn,
+        # geven geen recht op het dividend van die ex-dag. Een herbelegging
+        # gebeurt tegen de slotkoers van de herbelegdag, dus een herbelegging op
+        # de ex-dag valt buiten het recht. Stond hier "<=", dan kreeg SPY een
+        # dividend over aandelen die het die dag nog niet had.
         stuks = aandelen + sum(
             e["aandelen_bij"] for e in uit
-            if e["herbeleg_datum"] is not None and e["herbeleg_datum"] <= rij["ex_date"]
+            if e["herbeleg_datum"] is not None and e["herbeleg_datum"] < rij["ex_date"]
         )
         bedrag = round(stuks * rij["per_share_usd"], 8)
         koersdag, koers = eerste_koers_vanaf(spy_koersen, rij["pay_date"])

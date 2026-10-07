@@ -20,6 +20,7 @@ import pytest
 
 from sw import herbalans as hb
 from sw import portfolio as pf
+from tests.hulp_fx import bewijs_voor
 
 PROJECT = Path(__file__).resolve().parent.parent
 
@@ -64,6 +65,8 @@ def koersen_na(factor: float, ook: dict | None = None) -> dict:
 def wissel(instap, nieuwe_tickers=None, factor=1.0, **extra):
     nieuwe_tickers = nieuwe_tickers or NIEUWE_TOP5
     koersen = koersen_na(factor, {t: 100.0 for t in nieuwe_tickers})
+    # Sinds auditronde 5 draagt elke wissel haar wisselkoersbewijs mee.
+    extra.setdefault("fx_bewijs", bewijs_voor("2026-11-04", FX))
     return hb.bereken_herbalans(
         entry_hash="signaal-2",
         execution_date="2026-11-04",
@@ -159,7 +162,8 @@ def test_drift_kost_iets_maar_niet_veel(instap):
         entry_hash="signaal-2", execution_date="2026-11-04",
         vorige_uitvoering=instap, nieuwe_tickers=list(INSTAPKOERSEN),
         koersen_usd=koersen, fx_eurusd=FX, spy_koers_usd=SPY_INSTAP,
-        fx_source="test", fx_asof="2026-11-04T21:00:00+00:00")
+        fx_source="test", fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX))
     assert 0.0 < herb["turnover"] < 0.2
 
 
@@ -457,7 +461,8 @@ def test_de_vastgelegde_instap_van_6_oktober_blijft_de_eerste_schakel():
         koersen_usd={t: 100.0 for t in NIEUWE_TOP5}
         | {p["ticker"]: p["buy_price_usd"] for p in echt["positions"]},
         fx_eurusd=FX, spy_koers_usd=SPY_INSTAP, fx_source="test",
-        fx_asof="2026-11-04T21:00:00+00:00")
+        fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX))
 
     assert herb["prev_exec_hash"] == echt["exec_hash"]
     assert json.dumps(echt, sort_keys=True) == voor, (

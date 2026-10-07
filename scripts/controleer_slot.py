@@ -22,7 +22,7 @@ Twee dingen die hier bewust ingebouwd zijn
    Werkt dat niet zoals verwacht, dan stopt dit script onmiddellijk en wordt
    er geen enkele andere poging gedaan.
 
-Draai dit na elke wijziging aan sql/01_schema.sql of sql/02_hardening.sql.
+Draai dit na elke wijziging aan een van de bestanden in sql/.
 
 Gebruik:
     python scripts/controleer_slot.py
@@ -248,6 +248,7 @@ AANSTAAN = [
     "keten_moet_kloppen_staat_aan",
     "velden_moeten_kloppen_staat_aan",
     "wisselkoersbewijs_staat_aan",
+    "fx_bewijs_verplicht_staat_aan",
     "hash_moet_kloppen_staat_aan",
     "sloten_staan_aan",
 ]
@@ -257,10 +258,10 @@ print(f"   {'OK  ' if not uit else 'FOUT'}  alle wachters staan ook werkelijk aa
       + (f" (uit of onbekend: {', '.join(uit)})" if uit else ""))
 
 deur_versie = int(stand.get("deur_versie") or 0)
-uitslagen.append(deur_versie >= 4)
-print(f"   {'OK  ' if deur_versie >= 4 else 'FOUT'}  de schrijfdeur is versie "
-      f"{deur_versie} (verwacht: 4 of hoger)")
-if deur_versie < 4:
+uitslagen.append(deur_versie >= 5)
+print(f"   {'OK  ' if deur_versie >= 5 else 'FOUT'}  de schrijfdeur is versie "
+      f"{deur_versie} (verwacht: 5 of hoger)")
+if deur_versie < 5:
     print()
     print("   " + "!" * 70)
     if deur_versie < 3:
@@ -268,11 +269,17 @@ if deur_versie < 4:
         print("   er daarna nog eens over gegaan. Voer 03 opnieuw uit in de SQL")
         print("   Editor van Supabase; zolang dat niet gebeurd is, staat de deur voor")
         print("   de dagelijkse taak wijder open dan bedoeld.")
-    else:
+    elif deur_versie < 4:
         print("   sql/04_dividend_en_fx.sql is niet uitgevoerd, of 03 is er daarna")
         print("   nog eens over gegaan. Zonder 04 is de betaaldatum van een dividend")
         print("   niet verplicht en wordt de minuutbalk van de wisselkoers niet")
         print("   nagerekend. Voer 04 uit in de SQL Editor van Supabase.")
+    else:
+        print("   sql/05_fx_bewijs_verplicht.sql is niet uitgevoerd, of 04 is er")
+        print("   daarna nog eens over gegaan. Zonder 05 mag een wissel haar")
+        print("   wisselkoersbewijs WEGLATEN: de wachter uit 04 rekent de minuutbalk")
+        print("   alleen na als het record die velden zelf meebrengt. Voer 05 uit in")
+        print("   de SQL Editor van Supabase.")
     print("   " + "!" * 70)
 
 # De betaaldatum van een dividend en het spoor van de wisselkoers (sql/04).
@@ -281,8 +288,9 @@ if deur_versie < 4:
 # functie. Het GEDRAG van wisselkoersbewijs_moet_kloppen wordt met opzet niet
 # met een poging getest: een uitvoering die alleen op die wachter stuit, zou bij
 # een ontbrekende wachter in de echte keten belanden, en weghalen kan niet meer.
-# Dat gedrag staat in tests/test_fx_regel.py en in de tekst van sql/04.
-VIER = [
+# Dat gedrag staat in tests/test_fx_regel.py, tests/test_fx_bewijs.py en in de
+# tekst van sql/04 en sql/05.
+VIER_EN_VIJF = [
     ("dividend_betaaldatum_verplicht",
      "een dividend kan niet zonder betaaldatum worden vastgelegd"),
     ("dividend_betaaldag_na_exdag",
@@ -291,8 +299,13 @@ VIER = [
      "de minuutbalk en het ECB-controlegetal kunnen bewaard worden"),
     ("wisselkoersbewijs_moet_kloppen",
      "de minuutbalk van een uitvoering wordt nagerekend"),
+    # sql/05: een wissel mag haar bewijs niet meer weglaten.
+    ("fx_bewijs_verplicht",
+     "een wissel zonder wisselkoersbewijs wordt geweigerd"),
+    ("fx_balk_duurt_een_minuut",
+     "een balk van een uur kan niet voor een minuutbalk doorgaan"),
 ]
-for naam, uitleg in VIER:
+for naam, uitleg in VIER_EN_VIJF:
     goed = bool(stand.get(naam))
     uitslagen.append(goed)
     print(f"   {'OK  ' if goed else 'FOUT'}  {uitleg}")

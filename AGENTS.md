@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 195, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 232, groen op 7 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -208,6 +208,25 @@ staat in `audit/ONTWERP_dividend_fx_kosten_2026-10-07.md`.
     staat in `sw/realistisch.py`, heeft geen enkele schrijfweg, en wordt elke
     keer opnieuw uit de officiële records gerekend.
 
+Daar kwamen op 7 oktober 2026 deze twee bij, na auditronde 5:
+
+25. **Herbelegde SPY-aandelen geven alleen recht op een dividend als ze STRIKT
+    VOOR de ex-dag gekocht zijn.** Dezelfde grens als voor onze eigen vijf: wie
+    op de ex-dag koopt, krijgt dat dividend niet, en een herbelegging gebeurt
+    tegen de slotkoers van de herbelegdag. Valt een betaaldag precies op de
+    ex-dag van het volgende dividend, dan tellen de nieuwe aandelen pas vanaf
+    het dividend daarna mee. Stond hier `<=`, dan kreeg de maatstaf elke keer
+    een kwart procent dividend dat ze niet verdiend had.
+26. **Een wissel zonder volledig wisselkoersbewijs bestaat niet.** Alle acht
+    velden (`fx_bar_start`, `fx_bar_end`, `fx_bar_normaal`, `fx_control_source`,
+    `fx_control_date`, `fx_control_rate`, `fx_control_same_day`,
+    `fx_control_deviation_pct`) zijn verplicht zodra er een voorganger is, en ze
+    worden allemaal nagerekend - in `sw.fx.controleer_bewijs()` én in
+    `sql/05_fx_bewijs_verplicht.sql`. Reden: Yahoo bewaart minuutgegevens
+    ongeveer dertig dagen, dus wat op de avond van de wissel niet in de gehashte
+    tekst staat, kan een controleur een jaar later niet meer narekenen. De
+    instap van 6 oktober 2026 valt erbuiten en blijft onaangeroerd.
+
 ## Wat bewust open blijft
 
 **Belgische beurstaks.** Ordegrootte 0,35 % per richting kan bij maandelijkse
@@ -234,7 +253,7 @@ betaalde Snowflake-variant. Zie het open punt hieronder.
 
 **Python-versies.** Lokaal draait 3.14.3 (de `.venv`, zie boven), het dashboard
 en de GitHub-workflows draaien op 3.12. De gepinde versies installeren en slagen
-op allebei; getest door de workflow op 6 oktober 2026. De 195 tests draaien ook
+op allebei; getest door de workflow op 6 oktober 2026. De 232 tests draaien ook
 groen op de losse Python 3.14.4 die standaard in de terminal staat.
 
 **De wisselkoers in de grafiek is niet die van het record.** Het record van een
@@ -267,15 +286,15 @@ alleen bijschrijven   doet de maandscan     leest alleen
   laatste uitvoering uit de keten — niet de uitvoering van het laatste signaal.
   Tussen een nieuw signaal en de wissel de avond erna blijft de oude
   portefeuille immers gewoon de portefeuille.
-- `sql/01_schema.sql` tot en met `sql/04_dividend_en_fx.sql` zijn alle vier
+- `sql/01_schema.sql` tot en met `sql/05_fx_bewijs_verplicht.sql` zijn alle vijf
   idempotent; opnieuw draaien is veilig en verandert geen bestaande rij.
   **De volgorde telt**: 03 vervangt twee functies uit 02 door een strengere
-  versie, en 04 vervangt `hardening_status()` uit 03. Draai je een eerder
-  bestand opnieuw, draai dan daarna ook de latere. Dat valt meteen op:
-  `hardening_status()` geeft dan geen `deur_versie` 4 meer terug en
-  `scripts/controleer_slot.py` slaat alarm. 04 zet met opzet een APARTE trigger
-  op `executions` in plaats van die van 03 te vervangen, zodat de valkuil van
-  de volgorde niet dieper wordt.
+  versie, 04 vervangt `hardening_status()` uit 03 en 05 vervangt die van 04.
+  Draai je een eerder bestand opnieuw, draai dan daarna ook de latere. Dat valt
+  meteen op: `hardening_status()` geeft dan geen `deur_versie` 5 meer terug en
+  `scripts/controleer_slot.py` slaat alarm. 04 en 05 zetten met opzet elk een
+  APARTE trigger op `executions` in plaats van die van 03 te vervangen, zodat de
+  valkuil van de volgorde niet dieper wordt.
 - `scripts/leg_instap_vast.py` is de eerste keer, `scripts/leg_herbalans_vast.py`
   elke keer daarna (`LEG WISSEL VAST (na 22u20).bat`). Allebei lokaal, nooit
   vanuit GitHub.
@@ -300,6 +319,11 @@ alleen bijschrijven   doet de maandscan     leest alleen
   59 van 59 goed met `deur_versie 4`; die uitvoer staat in
   `audit/aanvalstest_2026-10-07_ronde4.txt`. De vier nieuwe controles gaan over
   de verplichte betaaldatum van een dividend en over het wisselkoersbewijs.
+  Sinds auditronde 5 verwacht het script `deur_versie 5` en komen er twee
+  controles bij (de verplichte bewijsvelden van een wissel, en dat een balk van
+  een uur niet voor een minuutbalk kan doorgaan). **Zolang
+  `sql/05_fx_bewijs_verplicht.sql` niet in Supabase staat, meldt het script daar
+  FOUT over** - dat is geen vergissing maar precies de bedoeling.
 - `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
   externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
   sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
@@ -490,22 +514,79 @@ noemde alleen het contante dividend (waardoor het leek alsof SPY niets kreeg, en
 niet dat het herbelegd was), en de officiële lijn stond gestippeld terwijl de
 tweede berekening doorlopend was.
 
+## Auditronde 5, uitgevoerd op 7 oktober 2026
+
+ChatGPT heeft het pakket van ronde 4 zelf gedraaid en grotendeels goedgekeurd:
+alle tests slaagden, signaal, logboek, uitvoering en `app.py` waren intact, en
+de vier beslissingen bleken werkelijk gebouwd. Er kwamen twee gerichte
+correcties uit. Beide nagerekend, beide klopten, beide hersteld. De vraag voor
+de volgende controleur staat in `audit/VRAAG_2026-10-07_ronde5.md`.
+
+**1. SPY kreeg dividend over aandelen die het die dag nog niet had.**
+`spy_dividenden()` telde eerdere herbeleggingen mee zolang
+`herbeleg_datum <= ex_date`. Valt een betaaldag van het ene dividend precies op
+de ex-dag van het volgende, dan werden de die dag gekochte aandelen al
+meegerekend - terwijl wie op de ex-dag koopt dat dividend niet krijgt. Gemeten
+in het testgeval: 1,4470407777 aandelen in plaats van 1,4434321972, dus 0,25
+procent te veel dividend op die uitkering, telkens in het voordeel van de
+maatstaf. Nu `<`. Er was nog niets vastgelegd dat ermee gerekend heeft; de
+eerste uitkeringen komen rond november en december 2026.
+
+**2. Het wisselkoersbewijs was alleen verplicht voor wie het meebracht.**
+`sql/04` rekende de minuutbalk en het controlegetal na met `if inhoud ?
+'fx_bar_end' then`. Een wissel die die velden gewoon wegliet, kwam nergens langs
+die controles. Sinds `sql/05_fx_bewijs_verplicht.sql` zijn alle acht velden
+verplicht zodra er een voorganger is, en worden ze ook nagerekend: de balk duurt
+precies een minuut, eindigt op of hoogstens vijf minuten voor de slotbel,
+`fx_bar_normaal` klopt met die balk, het controlegetal is niet van later dan de
+uitvoeringsdag, `fx_control_same_day` klopt met die datum, en de opgeslagen
+afwijking komt overeen met de opnieuw berekende.
+
+Diezelfde lijst staat nu ook in de code, in `sw.fx.controleer_bewijs()`.
+`bereken_herbalans()` weigert een wissel te bouwen zonder volledig bewijs en
+`verify_keten()` keurt zo'n schakel af. Dat is geen dubbelop: het lokale bestand
+is de bron van waarheid en de database de spiegel (beslissing 7). Een regel die
+lokaal wel weggeschreven wordt en in de database niet, is niet meer te
+herstellen.
+
+De instap van 6 oktober 2026 valt er expliciet buiten - die heeft geen
+`prev_exec_hash`, ook niet als sleutel in de gehashte tekst - en is niet
+aangeraakt. `forward_log/`, `bewijs/`, `app.py`, `sw/strategy.py` en `sql/01` tot
+en met `sql/04` zijn evenmin aangeraakt; de vier hashes van het signaal, de
+strategie, het universum en de instap zijn ongewijzigd, nagerekend na de
+wijziging.
+
+**`sql/05` moet nog in Supabase gezet worden.** Zolang dat niet gebeurd is, geldt
+de eis alleen in de code en meldt `scripts/controleer_slot.py` `deur_versie 4` in
+plaats van 5. Zie het eerste punt hieronder.
+
 ## Wat nu open staat
 
-1. **De bevindingen van auditronde 4 zijn nog niet verwerkt.** Bart heeft het
-   pakket van commit `c7c9e07` op 7 oktober 2026 aan ChatGPT voorgelegd en
-   laten nakijken; wat daar uit kwam, is in die sessie niet doorgegeven. Vraag
-   het dus op voor je iets anders doet. De vraag zelf staat in
-   `audit/VRAAG_2026-10-07_ronde4.md` en gaat over de vier beslissingen van
-   7 oktober 2026 (dividend bruto, SPY herbelegt, de minuutbalk, twee curves);
-   ze zegt er expliciet bij wat NIET meer gevraagd hoefde te worden.
+1. **`sql/05_fx_bewijs_verplicht.sql` staat nog niet in Supabase.** Dat is de
+   enige stap die Bart zelf moet doen; de code eist het bewijs al wel. Zolang
+   05 er niet in staat, mag een wissel haar wisselkoersbewijs in de database
+   nog weglaten. Zo zet je het erin:
 
-   Behandel elke bevinding als in ronde 1 tot en met 3: eerst narekenen of ze
+   - open https://supabase.com/dashboard/project/ibdscndklmgvseksgrkb/sql/new
+   - plak de volledige inhoud van `sql/05_fx_bewijs_verplicht.sql` en klik
+     **Run**
+   - draai daarna `python scripts/controleer_slot.py`; dat hoort `deur_versie 5`
+     te melden en alle controles goed. Bewaar die uitvoer in
+     `audit/aanvalstest_2026-10-07_ronde5.txt`, zoals bij de vorige rondes.
+
+2. **Auditronde 5 is nog niet voorgelegd.** De vraag staat klaar in
+   `audit/VRAAG_2026-10-07_ronde5.md` en gaat over de twee correcties van ronde
+   4 (het SPY-dividend op dezelfde ex-datum, en het verplichte
+   wisselkoersbewijs). Bouw het pakket met
+   `python scripts/maak_auditpakket.py` en leg dat voor.
+
+   Behandel elke bevinding als in ronde 1 tot en met 5: eerst narekenen of ze
    klopt, dan pas bouwen, nooit het bestaande bewijs aanraken, en een nieuwe
    ronde krijgt een eigen `audit/VRAAG_*.md` in plaats van een wijziging van de
-   vorige. Van ronde 3 (commit `ee05594`) is evenmin een antwoord verwerkt.
+   vorige. Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven; dat
+   is geen blokkade meer, want ronde 4 keek dezelfde code na.
 
-2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+3. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
    geworden, om twee redenen die allebei verholpen zijn:
 
@@ -520,7 +601,7 @@ tweede berekening doorlopend was.
    via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
    of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
-3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+4. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,

@@ -79,10 +79,12 @@ niets verzonnen - alleen nagerekend dat het geld van SPY klopt.
 
 from __future__ import annotations
 
+import json
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from .fx import controleer_bewijs as controleer_fx_bewijs
 from .portfolio import FX_BEWIJSVELDEN, KoersOntbreekt
 from .strategy import canonical_json, sha256_text
 
@@ -182,6 +184,24 @@ def verify_keten(uitvoeringen: List[dict]) -> Tuple[bool, str]:
                 f"dan de vorige ({vorige_datum.date()})."
             )
         vorige_datum = datum
+
+        # Elke schakel na de eerste hoort haar wisselkoersbewijs mee te dragen:
+        # de minuutbalk van de slotbel en het ECB-controlegetal. De eerste
+        # schakel is de instap van 6 oktober 2026 en kende die regel nog niet.
+        if u.get("prev_exec_hash"):
+            # Uit de GEHASHTE tekst lezen en niet uit de kolommen: alleen die
+            # tekst is bewijs, en een rij uit de database draagt deze velden
+            # helemaal niet als kolom.
+            inhoud = json.loads(canoniek) if canoniek else dict(u)
+            try:
+                controleer_fx_bewijs(
+                    {naam: inhoud[naam] for naam in FX_BEWIJSVELDEN
+                     if naam in inhoud},
+                    inhoud.get("execution_date", u["execution_date"]),
+                    inhoud.get("fx_rate", u.get("fx_rate")),
+                )
+            except (ValueError, TypeError) as fout:
+                return False, f"Uitvoering {nummer}: {fout}"
 
     return True, f"Keten van uitvoeringen intact ({len(keten)} schakel(s))."
 
@@ -491,6 +511,13 @@ def bereken_herbalans(
     # alleen in een kolom: de minuutbalk waar de koers bij hoort, en het
     # onafhankelijke controlegetal van de ECB. Alleen bekende velden mogen erin,
     # zodat er via deze weg niets anders in het bewijs kan belanden.
+    #
+    # Bij een WISSEL is dat bewijs verplicht en wordt het hier nagerekend. De
+    # instap van 6 oktober 2026 kende de regel nog niet en blijft precies zoals
+    # ze is; die wordt gebouwd door bereken_instap() en komt hier niet langs.
+    # Zonder deze eis zou er een wissel vastgelegd kunnen worden die de database
+    # daarna weigert, en dan wijkt het lokale bestand - de bron van waarheid -
+    # af van de spiegel, zonder weg terug.
     for naam, waarde in (fx_bewijs or {}).items():
         if naam not in FX_BEWIJSVELDEN:
             raise ValueError(
@@ -498,6 +525,9 @@ def bereken_herbalans(
                 + ", ".join(sorted(FX_BEWIJSVELDEN))
             )
         payload[naam] = waarde
+
+    controleer_fx_bewijs(
+        fx_bewijs, payload["execution_date"], payload["fx_rate"])
 
     canoniek = canonical_json(payload)
     volledig = dict(payload)

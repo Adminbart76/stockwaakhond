@@ -96,7 +96,7 @@ python -m streamlit run streamlit_app.py
 Controleren of alles nog klopt:
 
 ```
-python -m pytest                     # 195 wachters op formule, logboek en rekenwerk
+python -m pytest                     # 232 wachters op formule, logboek en rekenwerk
 python scripts/controleer_slot.py    # valt de database aan en controleert dat het mislukt
 python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bestand
 ```
@@ -108,7 +108,7 @@ python scripts/importeer_ledger.py   # vergelijkt de database met het lokale bes
 | `bewijs/` | het bewijsmateriaal. Nooit wijzigen. Begin bij `LEESMIJ.txt`. |
 | `forward_log/` | het werkende logboek |
 | `sw/` | de rekenkern, zonder schermcode |
-| `sql/` | wat er in Supabase draait (`01_schema.sql`, daarna `02_hardening.sql`) |
+| `sql/` | wat er in Supabase draait, in deze volgorde: `01_schema.sql`, `02_hardening.sql`, `03_smalle_deur.sql`, `04_dividend_en_fx.sql`, `05_fx_bewijs_verplicht.sql` |
 | `scripts/` | onderhoud en controle |
 | `tests/` | de wachters |
 

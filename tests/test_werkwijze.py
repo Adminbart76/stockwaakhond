@@ -26,6 +26,8 @@ WISSEL = PROJECT / "scripts" / "leg_herbalans_vast.py"
 HERSTEL = PROJECT / "scripts" / "herstel_dagkoers.py"
 HARDENING = PROJECT / "sql" / "02_hardening.sql"
 SMALLE_DEUR = PROJECT / "sql" / "03_smalle_deur.sql"
+DIVIDEND_FX = PROJECT / "sql" / "04_dividend_en_fx.sql"
+FX_BEWIJS = PROJECT / "sql" / "05_fx_bewijs_verplicht.sql"
 
 
 def meldingen_per_afloop(bestand: Path) -> dict:
@@ -175,6 +177,62 @@ def test_de_smalle_deur_staat_in_het_project():
         "mag_dagkoers_vastleggen",    # de deur bevragen zonder te schrijven
     ):
         assert regel in tekst, f"sql/03_smalle_deur.sql mist '{regel}'."
+
+
+# --------------------------------- het verplichte wisselkoersbewijs (ronde 5)
+def test_het_wisselkoersbewijs_is_in_de_database_verplicht():
+    """De bevinding van ronde 5.
+
+    04 rekent de minuutbalk alleen na als het record die velden zelf meebrengt
+    ("if inhoud ? 'fx_bar_end'"). Een wissel die ze wegliet, kwam nergens langs
+    die controles. 05 maakt ze verplicht zodra er een voorganger is.
+    """
+    assert FX_BEWIJS.exists(), "sql/05_fx_bewijs_verplicht.sql ontbreekt."
+    tekst = FX_BEWIJS.read_text(encoding="utf-8").lower()
+    for regel in (
+        "prev_exec_hash",                 # alleen een wissel, niet de instap
+        "fx_bar_start",
+        "fx_bar_end",
+        "fx_bar_normaal",
+        "fx_control_source",
+        "fx_control_date",
+        "fx_control_rate",
+        "fx_control_same_day",
+        "fx_control_deviation_pct",
+        "draagt haar wisselkoersbewijs niet mee",   # de weigering zelf
+        "interval '1 minute'",            # de balk duurt precies een minuut
+        "interval '5 minutes'",           # hoogstens vijf minuten terugval
+        "na de slotbel",                  # nooit een balk daarna
+        "na de uitvoeringsdag",           # controlegetal niet van later
+        "round((new.fx_rate / controle - 1) * 100, 6)",  # afwijking nagerekend
+        "'deur_versie', 5",
+    ):
+        assert regel in tekst, f"sql/05_fx_bewijs_verplicht.sql mist '{regel}'."
+
+
+def test_de_instap_van_6_oktober_valt_buiten_de_nieuwe_eis():
+    """Er is maar een manier waarop die uitvoering erbuiten kan vallen.
+
+    Faalt deze test, dan is de vrijstelling van de eerste schakel verdwenen en
+    kan de vastgelegde uitvoering niet meer opnieuw geimporteerd worden.
+    """
+    tekst = FX_BEWIJS.read_text(encoding="utf-8")
+    assert "coalesce(new.prev_exec_hash, inhoud->>'prev_exec_hash') is null" in tekst
+    assert "before insert on public.executions" in tekst, (
+        "De wachter hoort alleen bij een nieuwe rij te draaien; bestaande rijen "
+        "blijven onaangeroerd."
+    )
+
+
+def test_de_code_en_de_database_hebben_dezelfde_bewijsvelden():
+    """Lopen die twee lijsten uit elkaar, dan is er een gat of een valse eis."""
+    from sw.fx import BEWIJSVELDEN
+
+    tekst = FX_BEWIJS.read_text(encoding="utf-8")
+    for veld in BEWIJSVELDEN:
+        assert f"'{veld}'" in tekst, (
+            f"{veld} staat in sw/fx.py maar wordt in sql/05 niet geeist."
+        )
 
 
 def test_de_dagtaak_volgt_de_huidige_portefeuille_en_niet_de_geschiedenis():

@@ -24,6 +24,7 @@ import pytest
 from sw import dividend as div
 from sw import herbalans as hb
 from sw import portfolio as pf
+from tests.hulp_fx import bewijs_voor
 
 INSTAPKOERSEN = {
     "MRNA": 187.46000671, "ILMN": 273.54000854, "MPC": 432.35998535,
@@ -64,6 +65,7 @@ def wissel(instap):
         spy_koers_usd=SPY_INSTAP,
         fx_source="test",
         fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX),
     )
 
 
@@ -278,6 +280,55 @@ def test_het_volgende_dividend_rekent_met_de_bijgekochte_aandelen(instap):
     assert events[1]["bedrag_usd"] > events[0]["bedrag_usd"]
 
 
+def test_herbelegd_op_de_exdag_geeft_geen_recht_op_dat_dividend(instap):
+    """De bevinding van auditronde 5.
+
+    Dividend A wordt op 20 oktober herbelegd, en dividend B heeft 20 oktober
+    als ex-datum. Die nieuwe aandelen zijn gekocht tegen de slotkoers van de
+    ex-dag zelf, en wie op de ex-dag koopt, krijgt dat dividend niet. Stond
+    hier "op of voor de ex-dag", dan kreeg SPY dividend over aandelen die het
+    die dag nog niet had - elke keer een beetje voorsprong die niet verdiend is.
+    """
+    events = div.spy_dividenden(
+        [instap],
+        [rij("SPY", "2026-10-08", "2026-10-20", 2.00),    # A
+         rij("SPY", "2026-10-20", "2026-11-10", 2.00)],   # B
+        spy_koersen(800.0),
+    )
+
+    begin = float(instap["benchmark"]["shares"])
+    assert len(events) == 2
+    assert pd.Timestamp(events[0]["herbeleg_datum"]) == pd.Timestamp("2026-10-20"), (
+        "Dividend A wordt op de ex-dag van B herbelegd; dat is de opzet van deze test."
+    )
+    assert events[0]["aandelen_bij"] > 0
+
+    assert events[1]["shares"] == pytest.approx(begin), (
+        "De aandelen die op 20 oktober gekocht zijn, geven geen recht op het "
+        "dividend met ex-datum 20 oktober."
+    )
+    assert events[1]["bedrag_usd"] == pytest.approx(begin * 2.00)
+
+
+def test_herbelegd_de_dag_voor_de_exdag_geeft_wel_recht(instap):
+    """Een dag eerder is wel in bezit voor de ex-dag, en telt dus mee.
+
+    Deze staat ernaast om te laten zien dat de grens op de juiste dag ligt en
+    niet dat herbelegde aandelen voortaan nooit meer meetellen.
+    """
+    events = div.spy_dividenden(
+        [instap],
+        [rij("SPY", "2026-10-08", "2026-10-19", 2.00),
+         rij("SPY", "2026-10-20", "2026-11-10", 2.00)],
+        spy_koersen(800.0),
+    )
+    begin = float(instap["benchmark"]["shares"])
+    assert pd.Timestamp(events[0]["herbeleg_datum"]) == pd.Timestamp("2026-10-19")
+    assert events[1]["shares"] > begin, (
+        "Aandelen die voor de ex-dag gekocht zijn, geven wel recht op het dividend."
+    )
+
+
 def test_spy_dividend_van_voor_de_instap_telt_niet(instap):
     events = div.spy_dividenden(
         [instap], [rij("SPY", "2026-10-06", "2026-10-30", 2.00)], spy_koersen())
@@ -323,6 +374,7 @@ def test_een_wissel_met_dividend_laat_geen_geld_ontstaan_of_verdwijnen(instap):
         vorige_uitvoering=instap, nieuwe_tickers=NIEUWE_TOP5,
         koersen_usd=slotkoersen, fx_eurusd=FX, spy_koers_usd=800.0,
         fx_source="test", fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor(uitvoeringsdag, FX),
         dividend_cash_usd=div.som(mee), dividend_detail=div.detail(mee),
         spy_dividend_cash_usd=div.som(spy_mee),
         spy_dividend_detail=div.detail(spy_mee),

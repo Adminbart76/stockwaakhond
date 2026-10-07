@@ -23,6 +23,7 @@ import pytest
 from sw import herbalans as hb
 from sw import portfolio as pf
 from sw import realistisch as re
+from tests.hulp_fx import bewijs_voor
 
 VIJF = ["A", "B", "C", "D", "E"]
 ANDERE_VIJF = ["V", "W", "X", "Y", "Z"]
@@ -193,6 +194,7 @@ def test_de_papieren_keten_houdt_minder_over_na_een_wissel(instap):
         spy_koers_usd=KOERS["SPY"],
         fx_source="test",
         fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX),
     )
 
     papier = re.papieren_keten([instap, wissel])
@@ -215,7 +217,8 @@ def test_de_papieren_keten_verandert_de_officiele_records_niet(instap):
         entry_hash="signaal-2", execution_date="2026-11-04",
         vorige_uitvoering=instap, nieuwe_tickers=ANDERE_VIJF,
         koersen_usd=dict(KOERS), fx_eurusd=FX, spy_koers_usd=KOERS["SPY"],
-        fx_source="test", fx_asof="2026-11-04T21:00:00+00:00")
+        fx_source="test", fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX))
 
     voor = (instap["exec_hash"], wissel["exec_hash"],
             instap["canonical_payload"], wissel["canonical_payload"])
@@ -249,7 +252,8 @@ def test_dividendgeld_wordt_in_de_papieren_curve_met_eigen_aantallen_gerekend(in
         entry_hash="signaal-2", execution_date="2026-10-20",
         vorige_uitvoering=instap, nieuwe_tickers=ANDERE_VIJF,
         koersen_usd=dict(KOERS), fx_eurusd=FX, spy_koers_usd=KOERS["SPY"],
-        fx_source="test", fx_asof="2026-10-20T20:00:00+00:00")
+        fx_source="test", fx_asof="2026-10-20T20:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-10-20", FX))
 
     # De ex-datum ligt NA die wissel, dus na het punt waarop de twee curves uit
     # elkaar gaan lopen.
@@ -267,6 +271,7 @@ def test_dividendgeld_wordt_in_de_papieren_curve_met_eigen_aantallen_gerekend(in
         vorige_uitvoering=eerste, nieuwe_tickers=VIJF,
         koersen_usd=dict(KOERS), fx_eurusd=FX, spy_koers_usd=KOERS["SPY"],
         fx_source="test", fx_asof="2026-11-20T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-20", FX),
         dividend_cash_usd=detail[0]["bedrag_usd"],
         dividend_conventie="bruto, test",
         dividend_detail=detail)
@@ -291,6 +296,7 @@ def test_dividend_zonder_uitsplitsing_stopt_de_papieren_curve(instap):
         vorige_uitvoering=instap, nieuwe_tickers=ANDERE_VIJF,
         koersen_usd=dict(KOERS), fx_eurusd=FX, spy_koers_usd=KOERS["SPY"],
         fx_source="test", fx_asof="2026-11-04T21:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-11-04", FX),
         dividend_cash_usd=40.0, dividend_conventie="bruto, test")
 
     with pytest.raises(ValueError, match="uitsplitsing"):
@@ -302,7 +308,8 @@ def test_het_verloop_van_de_papieren_curve_blijft_onder_de_officiele(instap):
         entry_hash="signaal-2", execution_date="2026-10-20",
         vorige_uitvoering=instap, nieuwe_tickers=ANDERE_VIJF,
         koersen_usd=dict(KOERS), fx_eurusd=FX, spy_koers_usd=KOERS["SPY"],
-        fx_source="test", fx_asof="2026-10-20T20:00:00+00:00")
+        fx_source="test", fx_asof="2026-10-20T20:00:00+00:00",
+        fx_bewijs=bewijs_voor("2026-10-20", FX))
 
     dagen = pd.date_range("2026-10-06", "2026-10-30", freq="B")
     kolommen = sorted(set(VIJF) | set(ANDERE_VIJF) | {"SPY"})
