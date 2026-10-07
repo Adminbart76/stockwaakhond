@@ -255,6 +255,21 @@ def test_dividend_zonder_conventie_stopt_de_wissel():
     )
 
 
+def test_een_geweigerde_database_zegt_niet_dat_er_niets_vastligt():
+    """Lokaal eerst, database daarna. Dan kan die tweede stap mislukken.
+
+    Als dat gebeurt, staat de wissel wél lokaal. "Er is niets vastgelegd" zou
+    dan een onwaarheid zijn waardoor iemand opnieuw begint te rekenen - en dan
+    hangt de uitkomst af van de koersen van dat latere moment.
+    """
+    tekst = WISSEL.read_text(encoding="utf-8")
+    assert "stop_maar_lokaal_staat_het" in tekst
+    assert "--alleen-database" in tekst, (
+        "Er hoort een weg te zijn om de database bij te halen zonder iets "
+        "opnieuw te berekenen."
+    )
+
+
 def test_een_tweede_instap_met_vers_geld_bestaat_niet():
     """De eerste keer is een instap, daarna is het altijd een wissel."""
     tekst = WISSEL.read_text(encoding="utf-8")

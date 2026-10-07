@@ -155,6 +155,17 @@ shutil.rmtree(PROJECT / ".pytest_cache", ignore_errors=True)
 
 kop("5. Briefje erbij en op zijn plaats zetten")
 
+# De vraag van de nieuwste ronde. Elke ronde krijgt een eigen bestand, dus het
+# briefje hoort naar het laatste te wijzen zonder dat iemand dit script moet
+# aanpassen - en als er een nieuwe ronde begint zonder vraag, valt dat op.
+vragen = sorted(b for b in bestanden if b.startswith("audit/VRAAG_"))
+if not vragen:
+    print("GESTOPT: er staat geen audit/VRAAG_*.md in het project.")
+    print("Een controleur die niet weet wat de vraag is, gaat raden.")
+    sys.exit(1)
+vraag = vragen[-1]
+print(f"   vraag van deze ronde : {vraag}")
+
 briefje = (
     "AUDITPAKKET STOCKWAAKHOND V7.1\n"
     "==============================\n\n"
@@ -164,7 +175,7 @@ briefje = (
     f"tests       : {uitslag} (gedraaid in dit uitgepakte pakket)\n\n"
     "Dit is alles wat in de openbare GitHub-map staat: geen sleutels, geen\n"
     "wachtwoorden, geen database. De inhoud komt rechtstreeks uit Git.\n\n"
-    "Begin bij audit/VRAAG_2026-10-07.md. Daarin staat per punt wat er\n"
+    f"Begin bij {vraag}. Daarin staat per punt wat er\n"
     "gebouwd is, wat je kunt narekenen en waar je zou moeten aanvallen.\n"
 )
 with zipfile.ZipFile(tijdelijk_pakket, "a", zipfile.ZIP_DEFLATED) as z:
@@ -179,5 +190,5 @@ print("\n" + "=" * 70)
 print("KLAAR - het pakket is te versturen.")
 print(f"  {DOEL.name}  (in de projectmap)")
 print(f"  commit {commit[:12]}")
-print("Begin bij audit/VRAAG_2026-10-07.md: daarin staat wat er nagekeken moet worden.")
+print(f"Begin bij {vraag}: daarin staat wat er nagekeken moet worden.")
 print("=" * 70)

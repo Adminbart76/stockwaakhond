@@ -1,0 +1,169 @@
+AANVALSTEST OP DE FORWARD-TEST
+==============================================================================
+project : https://ibdscndklmgvseksgrkb.supabase.co
+doelwit : signaal 2026-10-05 (0426e47ccd6e0b4f...)
+keten   : 1 signaal/signalen, punt is seq 1
+
+0. STAAT DE VERSTEVIGING UIT sql/02_hardening.sql ERIN?
+         deur_versie: 3
+   OK    een_opvolger_per_uitvoering
+         eerlijk: Een eigenaar met DDL-rechten kan triggers en functies wijzigen, ook deze. Het controlespoor buiten deze database (Git-geschiedenis, hash-keten, bewijsbestanden) blijft dus nodig.
+   OK    hash_moet_kloppen_staat_aan
+   OK    keten_moet_kloppen
+   OK    keten_moet_kloppen_staat_aan
+   OK    schrijfdeur_bestaat
+   OK    schrijfteken_ingesteld
+         sloten_gevonden: 7
+   OK    sloten_staan_aan
+   OK    velden_moeten_kloppen
+   OK    velden_moeten_kloppen_staat_aan
+   OK    alle wachters staan ook werkelijk aan
+   OK    de schrijfdeur is versie 3 (verwacht: 3 of hoger)
+
+1. WIJZIGEN EN WISSEN MET DE GEHEIME SLEUTEL
+   (die sleutel omzeilt alle gewone beveiliging van Supabase)
+   OK    een score in het signaal wijzigen
+         hoort te mislukken  ->  HTTP 400  Tabel signals is append-only: UPDATE is niet toegestaan.
+   OK    het signaal verwijderen
+         hoort te mislukken  ->  HTTP 400  Tabel signals is append-only: DELETE is niet toegestaan.
+   OK    alle signalen in een keer wissen
+         hoort te mislukken  ->  HTTP 400  Tabel signals is append-only: DELETE is niet toegestaan.
+   OK    de strategie herschrijven
+         hoort te mislukken  ->  HTTP 400  Tabel strategies is append-only: UPDATE is niet toegestaan.
+   OK    een symbool uit het universum halen
+         hoort te mislukken  ->  HTTP 400  Tabel signal_universe is append-only: DELETE is niet toegestaan.
+   OK    de uitvoering van de portefeuille wijzigen
+         hoort te mislukken  ->  HTTP 400  Tabel executions is append-only: UPDATE is niet toegestaan.
+   OK    een vastgelegde slotkoers wijzigen
+         hoort te mislukken  ->  HTTP 400  Tabel price_snapshots is append-only: UPDATE is niet toegestaan.
+
+2. HET VANGNET: EEN SIGNAALDATUM DIE NOG MOET KOMEN
+   (werkt dit niet, dan stopt het script hier)
+   OK    een verder volkomen geldig signaal, gedateerd in de toekomst
+         hoort te mislukken  ->  HTTP 400  De signaaldatum 2027-01-04 ligt in de toekomst (in New York is het 2026-10-07)
+
+3. EEN VERVALST SIGNAAL BINNENSMOKKELEN
+   (elk met een kloppend controlegetal en een kloppende keten,
+    zodat precies een regel op de proef gesteld wordt)
+   OK    verkeerd controlegetal
+         hoort te mislukken  ->  HTTP 400  Het controlegetal van dit record klopt niet met de inhoud.
+   OK    volgnummer sluit niet aan
+         hoort te mislukken  ->  HTTP 400  Volgnummer 99 sluit niet aan: na 1 hoort 2.
+   OK    verwijst niet naar het laatste signaal
+         hoort te mislukken  ->  HTTP 400  Dit signaal verwijst niet naar het huidige laatste signaal.
+   OK    een tweede keten naast de echte beginnen
+         hoort te mislukken  ->  HTTP 400  Dit signaal verwijst niet naar het huidige laatste signaal.
+   OK    te snel een nieuw signaal (binnen 28 dagen)
+         hoort te mislukken  ->  HTTP 400  Te vroeg: het vorige signaal is van 2026-10-05, een nieuw signaal mag pas vana
+   OK    een signaal met een onbekende strategie
+         hoort te mislukken  ->  HTTP 400  Onbekende strategie bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+   OK    een verzonnen strategieversie bij een echte strategie
+         hoort te mislukken  ->  HTTP 400  De strategieversie in dit signaal (SW_SCORE_V4_VERZONNEN) hoort niet bij strat
+   OK    een formule die niet bij de strategie hoort
+         hoort te mislukken  ->  HTTP 400  De formule in dit signaal is niet de formule van strategie a399aecc207510c7745
+   OK    moment van vastleggen anders in de kolom
+         hoort te mislukken  ->  HTTP 400  created_at_utc in de kolom komt niet overeen met de gehashte inhoud.
+   OK    kolom zegt iets anders dan de gehashte inhoud
+         hoort te mislukken  ->  HTTP 400  De kolommen van dit record komen niet overeen met de gehashte inhoud.
+   OK    gehashte Top-5 vervangen in de kolom
+         hoort te mislukken  ->  HTTP 400  De kolommen van dit record komen niet overeen met de gehashte inhoud.
+   OK    logboekregel die niet bij de inhoud hoort
+         hoort te mislukken  ->  HTTP 400  De bewaarde logboekregel komt niet overeen met de gehashte inhoud.
+
+4. DE UITVOERING VAN DE PORTEFEUILLE
+   (deze pogingen mikken op een bestaande, unieke uitvoering en
+    kunnen dus niets achterlaten)
+   OK    bron van de wisselkoers anders in de kolom
+         hoort te mislukken  ->  HTTP 400  fx_source of fx_asof in de kolommen komt niet overeen met de gehashte inhoud.
+   OK    moment van de wisselkoers anders in de kolom
+         hoort te mislukken  ->  HTTP 400  fx_source of fx_asof in de kolommen komt niet overeen met de gehashte inhoud.
+   OK    wisselkoers van een heel ander moment
+         hoort te mislukken  ->  HTTP 400  fx_asof (2026-10-13 20:00:00+00) hoort niet bij de slotbel van 2026-10-06 (202
+   OK    instappen op de signaaldag zelf
+         hoort te mislukken  ->  HTTP 400  Er wordt ingestapt na de signaaldag: 2026-10-05 is niet later dan 2026-10-05.
+
+5. DE SMALLE SCHRIJFDEUR VOOR DE DAGELIJKSE TAAK
+   (die werkt met de leessleutel plus een eigen schrijfteken)
+   OK    dagkoersen wegschrijven zonder schrijfteken
+         hoort te mislukken  ->  HTTP 400  Geen geldig schrijfteken meegegeven.
+   OK    dagkoersen wegschrijven met een verzonnen schrijfteken
+         hoort te mislukken  ->  HTTP 400  Het schrijfteken voor dagkoersen klopt niet.
+   OK    een koers bijschrijven op een willekeurige oude dag
+         hoort te mislukken  ->  HTTP 400  Alleen de beursdag van nu mag vastgelegd worden: 2026-10-07 (opgegeven: 2026-1
+   OK    een koers voor een dag die nog moet komen
+         hoort te mislukken  ->  HTTP 400  Alleen de beursdag van nu mag vastgelegd worden: 2026-10-07 (opgegeven: 2030-0
+   OK    een willekeurige wisselkoers op een verkeerde dag
+         hoort te mislukken  ->  HTTP 400  Alleen de beursdag van nu mag vastgelegd worden: 2026-10-07 (opgegeven: 2026-1
+   (de poging met een vreemd aandeel is overgeslagen: in New York
+    is de beurs nu niet gesloten, dus die strandt op de tijdregel.
+    Hieronder wordt dezelfde regel bevraagd zonder te schrijven.)
+   OK    een bestaande slotkoers overschrijven verandert niets
+         koers blijft 419.2200012207031 (nu: 419.2200012207031, antwoord: HTTP 400)
+
+5b. DE DEUR BEVRAGEN ZONDER TE SCHRIJVEN
+   (twee regels worden pas bereikt als al het andere klopt: 'de dag
+    moet compleet zijn' en 'dit is geen koers'. Die echt proberen zou
+    bij een gat in de beveiliging een dag met verzonnen cijfers
+    achterlaten, en dat is niet meer weg te halen. Daarom wordt
+    dezelfde vraag gesteld aan een functie die niets wegschrijft.)
+   OK    vandaag, een minuut voor de slotbel: mag niet
+         mag = False   (verwacht: False)
+   OK       en de reden is de slotbel
+         na_de_slotbel_plus_marge = False   (verwacht: False)
+   OK    een zaterdag (2026-10-03): mag niet
+         mag = False   (verwacht: False)
+   OK       en de reden is dat het geen beursdag is
+         is_een_weekdag = False   (verwacht: False)
+   OK    de lijst komt uit de huidige portefeuille en niet uit alle oude signalen
+         6 aandelen: HPE, ILMN, MPC, MRNA, VLO, SPY
+         bron: de actuele uitvoering
+   OK    een dag zonder SPY: niet compleet
+         lijst_is_compleet = False   (verwacht: False)
+   OK    de volledige lijst: compleet
+         lijst_is_compleet = True   (verwacht: True)
+   OK    een wisselkoers van 99 dollar voor een euro: geen koers
+         wisselkoers_bruikbaar = False   (verwacht: False)
+   OK    een wisselkoers van 1,13: wel een koers
+         wisselkoers_bruikbaar = True   (verwacht: True)
+
+6. MET DE LEESSLEUTEL (die in de webapp van het dashboard staat)
+   OK    het signaal lezen
+         hoort te lukken  ->  HTTP 200  
+   OK    het universum lezen
+         hoort te lukken  ->  HTTP 200  
+   OK    een signaal toevoegen
+         hoort te mislukken  ->  HTTP 401  permission denied for table signals
+   OK    een signaal wijzigen
+         hoort te mislukken  ->  HTTP 401  permission denied for table signals
+   OK    een signaal verwijderen
+         hoort te mislukken  ->  HTTP 401  permission denied for table signals
+   OK    in het beheerslogboek kijken
+         hoort te mislukken  ->  HTTP 401  permission denied for table audit_log
+   OK    rechtstreeks een slotkoers toevoegen
+         hoort te mislukken  ->  HTTP 401  permission denied for table price_snapshots
+   OK    in de geheimen van de database kijken
+         hoort te mislukken  ->  HTTP 404  Could not find the table 'public.snapshot_sleutels' in the schema cache
+
+7. IS ER ECHT NIETS VERANDERD?
+   OK    het signaal is na alle pogingen nog exact hetzelfde
+         aantal signalen: 1 voor, 1 na
+   OK    het universum telt nog 503 symbolen (gevonden: 503)
+   OK    het controlegetal klopt nog met de inhoud
+   OK    de uitvoering van de portefeuille is onveranderd
+   OK    de keten van uitvoeringen klopt
+         Keten van uitvoeringen intact (1 schakel(s)).
+
+==============================================================================
+ALLE 55 CONTROLES GOED.
+De vastgelegde forward-test kan niet gewijzigd of gewist worden,
+ook niet met de geheime sleutel. Een vervalst signaal komt er niet in,
+en de dagelijkse taak kan met haar schrijfteken alleen de koersen van
+vandaag toevoegen, van de aandelen die nu in de portefeuille zitten.
+
+Wat deze test NIET kan uitsluiten, en wat je dus elders moet nakijken:
+wie eigenaar is van de database kan triggers en functies wijzigen of
+uitzetten - ook de functie die hierboven vertelt dat ze aanstaan. Het
+controlespoor buiten de database blijft daarom nodig: de openbare
+Git-geschiedenis, de hash-keten in forward_log/ en de bestanden in
+bewijs/. Wijkt de database daarvan af, dan is de database fout.
+==============================================================================

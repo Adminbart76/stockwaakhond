@@ -28,10 +28,23 @@ Afloop:
                  nog geen beursdag na het signaal)
     exitcode 1 - er is iets mis en iemand moet ernaar kijken
 
+Als de database het weigert
+===========================
+Er wordt eerst lokaal weggeschreven en dan pas in de database: het lokale
+bestand is de bron van waarheid (beslissing 7). Weigert de database daarna, dan
+staat de wissel lokaal en niet in de spiegel. Dat is geen ramp en geen verlies,
+maar het hoort wel rechtgezet te worden, en zeker niet met de hand.
+
+Daarvoor is --alleen-database: die rekent niets opnieuw uit en haalt alleen de
+database bij met wat er lokaal al staat. Zonder die weg zou iemand in de
+verleiding komen om het record opnieuw te berekenen, en dan hangt de uitkomst
+af van de koersen op dat latere moment.
+
 Gebruik:
     python scripts/leg_herbalans_vast.py --toon        (alleen tonen)
     python scripts/leg_herbalans_vast.py              (echt vastleggen)
     python scripts/leg_herbalans_vast.py --dividend=netto
+    python scripts/leg_herbalans_vast.py --alleen-database   (database bijhalen)
 """
 
 from __future__ import annotations
@@ -57,6 +70,7 @@ LEDGER = PROJECT / "forward_log" / "ledger.jsonl"
 UITVOERINGEN = PROJECT / "forward_log" / "executions.jsonl"
 
 ALLEEN_TONEN = "--toon" in sys.argv
+ALLEEN_DATABASE = "--alleen-database" in sys.argv
 DIVIDEND_CONVENTIE = None
 for arg in sys.argv[1:]:
     if arg.startswith("--dividend="):
@@ -67,6 +81,27 @@ def stop(bericht: str) -> None:
     print("\n" + "=" * 74)
     print("GESTOPT: " + bericht)
     print("Er is niets vastgelegd.")
+    print("=" * 74)
+    sys.exit(1)
+
+
+def stop_maar_lokaal_staat_het(bericht: str) -> None:
+    """Hier is wél iets vastgelegd, alleen niet in de database.
+
+    Met opzet een andere melding dan stop(): "er is niets vastgelegd" zou hier
+    gewoon niet waar zijn, en dat is precies het soort regel waardoor iemand
+    later denkt dat hij opnieuw mag beginnen.
+    """
+    print("\n" + "=" * 74)
+    print("HALF KLAAR: " + bericht)
+    print()
+    print("De wissel staat wel in forward_log/executions.jsonl, en dat bestand")
+    print("is de bron van waarheid. Er is niets verloren en er mag niets")
+    print("opnieuw berekend worden: dan zou de uitkomst van de koersen van NU")
+    print("afhangen in plaats van van de slotkoers van de uitvoeringsdag.")
+    print()
+    print("Zodra de oorzaak weg is, haal je de database bij met:")
+    print("    python scripts/leg_herbalans_vast.py --alleen-database")
     print("=" * 74)
     sys.exit(1)
 
@@ -82,6 +117,78 @@ def klaar(bericht: str) -> None:
 def kop(tekst: str) -> None:
     print("\n" + tekst)
     print("-" * len(tekst))
+
+
+# ------------------------------------------- 0. alleen de database bijhalen
+if ALLEEN_DATABASE:
+    kop("De database bijhalen met wat er lokaal al staat")
+
+    if not UITVOERINGEN.exists():
+        stop("er staat lokaal nog geen enkele uitvoering.")
+    lokaal = [
+        json.loads(l) for l in
+        UITVOERINGEN.read_text(encoding="utf-8").splitlines() if l.strip()
+    ]
+    ok, bericht = hb.verify_keten(lokaal)
+    if not ok:
+        stop("de lokale keten klopt niet: " + bericht)
+
+    db = Supabase.schrijver(lees_instellingen())
+    in_db = {u["exec_hash"] for u in db.select("executions", "select=exec_hash")}
+    ontbreken = [u for u in hb.sorteer_keten(lokaal) if u["exec_hash"] not in in_db]
+
+    if not ontbreken:
+        klaar("de database heeft alles al; er valt niets bij te halen.")
+
+    for u in ontbreken:
+        print(f"   {u['execution_date']}  {u['exec_hash'][:24]}...")
+        rij = {
+            "exec_hash": u["exec_hash"],
+            "entry_hash": u["entry_hash"],
+            "execution_date": u["execution_date"],
+            "fx_pair": u["fx_pair"],
+            "fx_rate": u["fx_rate"],
+            "fx_source": u["fx_source"],
+            "fx_asof": u["fx_asof"],
+            "start_capital_eur": u["start_capital_eur"],
+            "cost_pct": u["cost_pct"],
+            "cost_eur": u["cost_eur"],
+            "invested_eur": u["invested_eur"],
+            "positions": u["positions"],
+            "benchmark": u["benchmark"],
+            "canonical_payload": u["canonical_payload"],
+        }
+        # De velden die alleen een wissel heeft. De eerste instap heeft ze niet.
+        for veld in ("record_type", "prev_exec_hash", "turnover", "cost_usd",
+                     "invested_usd", "cash_usd", "opening"):
+            if veld in u:
+                rij[veld] = u[veld]
+        try:
+            db.insert("executions", [rij])
+        except Exception as fout:
+            stop(
+                "de database weigert het nog steeds:\n" + str(fout) + "\n"
+                "Er is dus nog niets bijgehaald. Zoek eerst uit waarom; het\n"
+                "lokale bestand blijft ondertussen de bron van waarheid."
+            )
+        db.insert("audit_log", [{
+            "actor": "scripts/leg_herbalans_vast.py --alleen-database",
+            "action": "database bijgehaald met een lokaal bestaande uitvoering",
+            "detail": {"exec_hash": u["exec_hash"],
+                       "execution_date": u["execution_date"]},
+        }])
+
+    terug = db.select("executions", "select=*&order=execution_date.asc")
+    ok, bericht = hb.verify_keten(terug)
+    if not ok:
+        stop("de keten in de database klopt na het bijhalen niet: " + bericht)
+
+    print(f"\n   {len(ontbreken)} uitvoering(en) bijgehaald")
+    print(f"   keten: {bericht}")
+    print("\n" + "=" * 74)
+    print("BIJGEHAALD - database en lokaal bestand zijn weer gelijk.")
+    print("=" * 74)
+    sys.exit(0)
 
 
 # ------------------------------------------------------- 1. logboek en keten
@@ -349,7 +456,11 @@ rij = {
     "benchmark": wissel["benchmark"],
     "canonical_payload": wissel["canonical_payload"],
 }
-db.insert("executions", [rij])
+try:
+    db.insert("executions", [rij])
+except Exception as fout:
+    stop_maar_lokaal_staat_het(
+        "de database weigerde de wissel.\nTechnische melding: " + str(fout))
 print("   database : executions")
 
 snapshots = []
