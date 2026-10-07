@@ -24,9 +24,21 @@ Belgische keten wordt elke keer opnieuw gerekend uit de officiele records
 een vaste, versienummerde configuratie. Er komt niets van terecht in
 `executions`, in `forward_log/`, in `bewijs/` of in welke hash dan ook.
 
-De configuratie heeft een versienaam (`BE_TAX_RULES_2026_V1`). Verandert de wet
-in 2027, dan komt er een nieuwe versie naast; zo kan een latere wijziging nooit
-stil de cijfers van 2026 veranderen.
+De configuratie heeft een versienaam. Verandert de wet, dan komt er een nieuwe
+versie NAAST de oude; zo kan een latere wijziging nooit stil de cijfers van een
+eerder jaar veranderen. Er staan er nu twee:
+
+    BE_TAX_RULES_2026_V1   historisch spoor. Rekende de vrijstelling op
+                           meerwaarde met het wettelijke basisbedrag van
+                           4.855 euro. Wordt niet meer gebruikt om te rekenen.
+    BE_TAX_RULES_2026_V2   wat er nu gerekend wordt (`REGELS_NU`). Voor
+                           inkomstenjaar 2026 is de vrijstelling EFFECTIEF
+                           10.000 euro.
+
+De regels dragen ook het inkomstenjaar waarvoor ze gelden
+(`geldig_voor_inkomstenjaar`). Een raming over een ander jaar rust op een
+geïndexeerd bedrag dat hier niet staat, en dat wordt niet stil gedaan:
+`meerwaardejaren()` zegt per jaar of de regels er werkelijk bij horen.
 
 Wat wel en wat niet uit de portefeuille gaat
 ============================================
@@ -54,12 +66,18 @@ een aandeel in de Top-5 staan en is het bedrag al bijna goed, dan is er geen
 order en dus geen taks. Gaat een aandeel eruit, dan wordt het volledig verkocht.
 
 De kosten bepalen hoeveel er te beleggen valt, en wat er te beleggen valt bepaalt
-de orders. Dat is een kringetje. Het wordt opgelost door het een paar keer door
-te rekenen tot het niet meer beweegt (`_los_kosten_op`). Dat convergeert in drie
-of vier rondes - de kosten zijn een half procent van de omzet - en geeft voor
-iedereen hetzelfde getal. Zo kloppen drie dingen tegelijk: de taks staat op het
-bedrag dat werkelijk verhandeld is, de aandelen die overblijven kloppen met die
-orders, en er verdwijnt of ontstaat geen geld.
+de orders. Dat is een kringetje, en het wordt doorgerekend tot het niet meer
+beweegt (`_los_kosten_op`). Twee dingen moeten daarbij tegelijk kloppen: de
+hoogte van de kosten, EN de lijst van welke aandelen een order krijgen. Die
+tweede hangt er ook van af: een aandeel dat zonder kosten precies op gewicht
+staat, krijgt er met kosten alsnog een klein order bij. Pas als beide stil staan
+is de oplossing zelfconsistent. Lukt dat niet - met een minimumkost per order kan
+de lijst in theorie heen en weer springen - dan stopt het met een foutmelding in
+plaats van een getal te kiezen dat van de rekenrichting afhangt.
+
+Zo kloppen drie dingen tegelijk: de taks staat op het bedrag dat werkelijk
+verhandeld is, de aandelen die overblijven kloppen met die orders, en er
+verdwijnt of ontstaat geen geld.
 
 Dat is een klein verschil met sw/realistisch.py, dat de doelbedragen op de waarde
 VOOR de kosten bepaalt. Daar kan dat, want daar hangt niets van het exacte
@@ -141,6 +159,29 @@ TOB_FONDS_DISTRIBUTIE = TobTarief(pct=0.12, max_eur=1300.0)
 TOB_FONDS_KAPITALISATIE_BE = TobTarief(pct=1.32, max_eur=4000.0)
 
 
+# ============================== de vrijstelling op winst bij verkoop (2026)
+# Twee bedragen die niet door elkaar mogen. Het eerste staat in de wettekst als
+# basisbedrag, het tweede is wat er voor inkomstenjaar 2026 werkelijk
+# vrijgesteld wordt.
+#
+# Het basisbedrag staat hier ALLEEN om dat onderscheid te kunnen laten zien. Er
+# wordt niet mee gerekend; `BE_TAX_RULES_2026_V1` hieronder is het historische
+# spoor waarin dat nog wel gebeurde.
+MEERWAARDE_VRIJSTELLING_BASISBEDRAG_EUR = 4855.0
+
+# De parlementaire stukken bij de aangenomen wet bepalen dat het basisbedrag
+# voor inkomstenjaar 2026 zo wordt aangepast dat de vrijstelling EFFECTIEF
+# 10.000 euro bedraagt. Dit is dus het bedrag dat gerekend hoort te worden.
+# Bron: Kamer, dossier 56K1244.
+#
+# Alleen voor inkomstenjaar 2026. Het bedrag wordt geïndexeerd, dus 2027 hoort
+# een eigen regelversie te krijgen; zie `geldig_voor_inkomstenjaar`.
+MEERWAARDE_VRIJSTELLING_EFFECTIEF_2026_EUR = 10000.0
+
+# Het inkomstenjaar waar de bedragen in dit bestand bij horen.
+INKOMSTENJAAR = 2026
+
+
 @dataclass(frozen=True)
 class PraktijkBenchmark:
     """De plaats voor een latere Belgische praktijkbenchmark.
@@ -184,6 +225,13 @@ class BelgischeRegels:
     instrumenttype_per_ticker: Mapping[str, str] = field(
         default_factory=lambda: MappingProxyType({}))
 
+    # ---- het inkomstenjaar waar deze bedragen bij horen
+    # De vrijstellingen worden geïndexeerd en de wet kan wijzigen. Een raming
+    # over een ander jaar rust dus op een bedrag dat hier niet staat. Dat
+    # gebeurt niet stil: `meerwaardejaren()` zet bij elk jaar of de regels er
+    # werkelijk bij horen, en het dashboard zegt het erbij.
+    geldig_voor_inkomstenjaar: int = INKOMSTENJAAR
+
     # ---- broker; alles nul tot er een broker gekozen is
     broker_fixed_fee_per_order_eur: float = 0.0
     broker_variable_fee_pct: float = 0.0
@@ -209,11 +257,34 @@ class BelgischeRegels:
 
     # ---- meerwaarde
     meerwaarde_pct: float = 10.0
-    meerwaarde_vrijstelling_eur: float = 4855.0
+    meerwaarde_vrijstelling_eur: float = MEERWAARDE_VRIJSTELLING_EFFECTIEF_2026_EUR
     external_capital_gain_exemption_used_eur: float = 0.0
-    # Of de transactiekosten in de meerwaardebasis mogen. Standaard niet: de
-    # meerwaarde wordt gerekend op de orderbedragen zelf. Zie BELGIE.md.
+    # Of de transactiekosten in de meerwaardebasis mogen. Niet: de meerwaarde
+    # wordt gerekend op de orderbedragen zelf. Zie BELGIE.md.
     kosten_in_meerwaardebasis: bool = False
+
+    def __post_init__(self) -> None:
+        """Weigert een configuratie die dezelfde kost twee keer zou rekenen.
+
+        `basiskost_pct` is de transactiekost van de forward-test (0,15 %). Die
+        staat op de PLAATS van de brokerkosten zolang er geen broker gekozen is.
+        Wordt er later een echte broker ingevuld en blijft die basiskost staan,
+        dan betaalt elk order twee keer - en dat is aan de cijfers niet te zien.
+
+        Een waarschuwing in de documentatie is daarvoor niet genoeg: die kan
+        iemand over het hoofd zien. Daarom bestaat zo'n configuratie hier niet.
+        Wie brokerkosten instelt, zet `basiskost_pct=0.0` in dezelfde beweging.
+        """
+        if self.broker_ingesteld and self.basiskost_pct != 0.0:
+            raise ValueError(
+                f"De regels '{self.naam}' stellen brokerkosten in terwijl "
+                f"basiskost_pct op {self.basiskost_pct!r} staat. Dan wordt "
+                "dezelfde transactiekost twee keer gerekend: een keer als "
+                "brokerkost en een keer als de 0,15 % van de forward-test. "
+                "Zet basiskost_pct=0.0 in dezelfde stap als de brokerkosten. "
+                "(None betekent hier: neem het tarief van de officiele keten "
+                "over, en dat is dus niet nul.)"
+            )
 
     @property
     def broker_ingesteld(self) -> bool:
@@ -228,6 +299,10 @@ class BelgischeRegels:
         return bool(self.fx_conversion_fee_pct)
 
 
+# Historisch spoor, bewaard om te kunnen narekenen wat er vóór 8 oktober 2026
+# gerekend werd. Hiermee wordt niet meer gerekend: de vrijstelling op meerwaarde
+# staat er op het wettelijke basisbedrag, en dat is niet wat er voor
+# inkomstenjaar 2026 werkelijk vrijgesteld wordt. Zie V2 hieronder.
 BE_TAX_RULES_2026_V1 = BelgischeRegels(
     naam="BE_TAX_RULES_2026_V1",
     tob=MappingProxyType({
@@ -236,9 +311,19 @@ BE_TAX_RULES_2026_V1 = BelgischeRegels(
         "fonds_distributie": TOB_FONDS_DISTRIBUTIE,
         "fonds_kapitalisatie_be": TOB_FONDS_KAPITALISATIE_BE,
     }),
+    meerwaarde_vrijstelling_eur=MEERWAARDE_VRIJSTELLING_BASISBEDRAG_EUR,
 )
 
-REGELS_NU = BE_TAX_RULES_2026_V1
+# Wat er nu gerekend wordt. Enig verschil met V1: de vrijstelling op winst bij
+# verkoop staat op de 10.000 euro die voor inkomstenjaar 2026 effectief geldt.
+# Dat is geen stille aanpassing van V1 - die blijft staan zoals ze was.
+BE_TAX_RULES_2026_V2 = replace(
+    BE_TAX_RULES_2026_V1,
+    naam="BE_TAX_RULES_2026_V2",
+    meerwaarde_vrijstelling_eur=MEERWAARDE_VRIJSTELLING_EFFECTIEF_2026_EUR,
+)
+
+REGELS_NU = BE_TAX_RULES_2026_V2
 
 # Per parameter: is het een vaststaand tarief, een aanname, nog te bevestigen, of
 # nog niet ingesteld? Het dashboard en BELGIE.md lezen hier uit, zodat een
@@ -267,15 +352,16 @@ HERKOMST: Mapping[str, dict] = MappingProxyType({
     },
     "dividend_vrijstelling_eur": {
         "naam": "Vrijstelling op dividend, per persoon per jaar",
-        "status": STATUS_TE_BEVESTIGEN,
-        "waarde": "833 euro",
-        "bron": "doorgegeven door Bart op 7 oktober 2026",
-        "gecontroleerd_op": "2026-10-07",
+        "status": STATUS_EXACT,
+        "waarde": "833 euro voor inkomstenjaar 2026",
+        "bron": "FOD Financiën",
+        "gecontroleerd_op": "2026-10-08",
         "uitleg": (
-            "833 euro is het bedrag voor inkomstenjaar 2025 (aanslagjaar 2026). "
-            "Voor inkomstenjaar 2026 noemen publieke bronnen 859 euro. Nog te "
-            "bevestigen. De vrijstelling geldt over ALLE gewone dividenden van "
-            "de belastingplichtige, niet alleen die van StockWaakhond."
+            "833 euro geldt voor inkomstenjaar 2026; bevestigd bij de FOD "
+            "Financiën. De vrijstelling geldt over ALLE gewone dividenden van "
+            "de belastingplichtige, niet alleen die van StockWaakhond. Ze werkt "
+            "niet aan de bron: de voorheffing wordt eerst ingehouden en je "
+            "vraagt ze terug met je aangifte."
         ),
     },
     "foreign_withholding_pct": {
@@ -299,15 +385,17 @@ HERKOMST: Mapping[str, dict] = MappingProxyType({
     },
     "meerwaarde_vrijstelling_eur": {
         "naam": "Vrijstelling op winst bij verkoop, per persoon per jaar",
-        "status": STATUS_TE_BEVESTIGEN,
-        "waarde": "4.855 euro",
-        "bron": "doorgegeven door Bart op 7 oktober 2026",
-        "gecontroleerd_op": "2026-10-07",
+        "status": STATUS_EXACT,
+        "waarde": "10.000 euro voor inkomstenjaar 2026",
+        "bron": "Kamer, dossier 56K1244",
+        "gecontroleerd_op": "2026-10-08",
         "uitleg": (
-            "Publieke bronnen noemen 10.000 euro per jaar per persoon, "
-            "jaarlijks geïndexeerd. Dit bedrag is dus nog te bevestigen. Het "
-            "staat hier zoals opgedragen; een wijziging hoort een nieuwe "
-            "regelversie te krijgen in plaats van een stille aanpassing."
+            "In de wettekst staat een basisbedrag van 4.855 euro. De "
+            "parlementaire stukken bij de aangenomen wet bepalen dat dat bedrag "
+            "voor inkomstenjaar 2026 zo wordt aangepast dat de vrijstelling "
+            "EFFECTIEF 10.000 euro bedraagt. Dat laatste is wat hier gerekend "
+            "wordt. Het bedrag wordt geïndexeerd, dus het geldt alleen voor "
+            "2026; een volgend jaar hoort een eigen regelversie te krijgen."
         ),
     },
     "broker_fixed_fee_per_order_eur": {
@@ -353,10 +441,16 @@ HERKOMST: Mapping[str, dict] = MappingProxyType({
     },
     "kosten_in_meerwaardebasis": {
         "naam": "Tellen de kosten mee bij het berekenen van de winst?",
-        "status": STATUS_AANNAME,
-        "waarde": "nee: de winst wordt op de orderbedragen gerekend",
-        "bron": "aanname, nog na te gaan",
-        "gecontroleerd_op": "2026-10-07",
+        "status": STATUS_EXACT,
+        "waarde": "nee, de kosten en de beurstaks verlagen de belastbare winst niet",
+        "bron": "parlementaire toelichting bij de wet (Kamer, dossier 56K1244)",
+        "gecontroleerd_op": "2026-10-08",
+        "uitleg": (
+            "De toelichting zegt het uitdrukkelijk: kosten bij aankoop of "
+            "verkoop en belastingen zoals de beurstaks hebben geen invloed op "
+            "de berekening van de meerwaarde. Ze gaan dus wel van de rekening, "
+            "maar niet van de belastbare winst af."
+        ),
     },
 })
 
@@ -719,6 +813,12 @@ def meerwaardejaren(
     De persoonlijke vrijstelling geldt per belastingplichtige, dus ook voor
     beleggingen buiten StockWaakhond. Wat daar al van gebruikt is, komt binnen
     via `external_capital_gain_exemption_used_eur`.
+
+    De bedragen horen bij één inkomstenjaar (`geldig_voor_inkomstenjaar`) en
+    worden geïndexeerd. Een jaar dat daarbuiten valt wordt wel gerekend - anders
+    verdwijnt de raming helemaal - maar krijgt `regels_gelden_voor_dit_jaar`
+    op False mee, zodat het dashboard erbij kan zeggen dat die regel nog van
+    2026 is. Stilzwijgend doorrekenen zou het bedrag als zeker laten lezen.
     """
     per_jaar: Dict[int, dict] = {}
 
@@ -757,6 +857,10 @@ def meerwaardejaren(
             "belastbare_basis_eur": basis,
             "tarief_pct": tarief,
             "belasting_eur": round(basis * tarief / 100.0, 8),
+            "regelversie": regels.naam,
+            "regels_voor_inkomstenjaar": int(regels.geldig_voor_inkomstenjaar),
+            "regels_gelden_voor_dit_jaar": (
+                int(blok["jaar"]) == int(regels.geldig_voor_inkomstenjaar)),
         })
 
     return dict(sorted(per_jaar.items()))
@@ -787,8 +891,9 @@ def _kosten_van_orders(
 ) -> Tuple[dict, List[dict]]:
     """De kosten van een hele reeks orders, plus de regels van het logboek.
 
-    `alleen` beperkt het tot de aandelen waarvoor er werkelijk een order is. Dat
-    wordt één keer vooraf bepaald en daarna vastgehouden; zie `_los_kosten_op`.
+    `alleen` beperkt het tot een gegeven lijst aandelen. Staat die er niet, dan
+    wordt er per aandeel naar de drempel gekeken. Zie `_los_kosten_op`: die
+    zoekt een lijst die bij haar eigen uitkomst past.
     """
     totaal = _leeg_kostenblok()
     log: List[dict] = []
@@ -817,55 +922,34 @@ def _kosten_van_orders(
     return totaal, log
 
 
-def _los_kosten_op(
+def _orders_boven_de_drempel(
+    orders: Mapping[str, float],
+    fx_rate: float,
+) -> List[str]:
+    """De aandelen waarvoor er werkelijk een order is: minstens een eurocent."""
+    return sorted(
+        t for t, bedrag in orders.items()
+        if abs(float(bedrag)) / float(fx_rate) >= MINIMUM_ORDER_EUR
+    )
+
+
+def _kosten_bij_vaste_lijst(
     regels: BelgischeRegels,
     huidige_waarden_usd: Mapping[str, float],
     nieuwe_tickers: Sequence[str],
     totaal_usd: float,
     fx_rate: float,
     basiskost_pct: float,
+    actief: Sequence[str],
 ) -> dict:
-    """Zoekt de kosten die bij hun eigen orders passen.
+    """De kosten en de orders bij een GEGEVEN lijst orders.
 
     De kosten bepalen hoeveel er te beleggen valt, en dat bepaalt de orders, en
-    die bepalen de kosten. Dat kringetje wordt hier doorgerekend tot het stil
-    staat. Bij een halve procent kosten is dat na drie of vier rondes het geval.
-
-    WELKE aandelen er een order krijgen, wordt één keer vooraf bepaald en daarna
-    niet meer gewijzigd. Zonder die afspraak kan een aandeel dat bijna op gewicht
-    staat bij elke ronde in en uit de lijst springen - de kost verandert dan met
-    een sprongetje in plaats van vloeiend, en dan komt de berekening nooit tot
-    rust. Het aandeel dat daardoor net wel of net niet meedoet, gaat over een
-    bedrag van een cent.
+    die bepalen de kosten. Zolang de lijst vast staat, beweegt dat kringetje
+    vloeiend - elke kost is een percentage of een vast bedrag per order - en
+    staat het na drie of vier rondes stil.
     """
-    if not nieuwe_tickers:
-        raise ValueError("Geen nieuwe aandelen opgegeven.")
-
-    # Eerst een proefronde, alleen om te bepalen WELKE aandelen een order
-    # krijgen. Die lijst mag niet op de waarde VOOR de kosten gebaseerd worden:
-    # een aandeel dat dan precies op gewicht staat, krijgt door de kosten alsnog
-    # een klein order. Zou het daardoor buiten de lijst vallen, dan klopt het
-    # geld niet meer - er wordt dan meer belegd dan er is.
-    proef_doelen = {
-        t: float(totaal_usd) / len(nieuwe_tickers) for t in nieuwe_tickers}
-    proef_kosten, _ = _kosten_van_orders(
-        regels, _orders_van(huidige_waarden_usd, proef_doelen),
-        fx_rate, basiskost_pct)
-    schatting_usd = round(proef_kosten["totaal_eur"] * float(fx_rate), 8)
-
-    na_schatting = {
-        t: (float(totaal_usd) - schatting_usd) / len(nieuwe_tickers)
-        for t in nieuwe_tickers}
-    actief = sorted(
-        t for t, bedrag in _orders_van(huidige_waarden_usd, na_schatting).items()
-        if abs(bedrag) / float(fx_rate) >= MINIMUM_ORDER_EUR
-    )
-
     kosten_usd = 0.0
-    doelen: Dict[str, float] = {}
-    orders: Dict[str, float] = {}
-    kosten = _leeg_kostenblok()
-    log: List[dict] = []
 
     for _ in range(MAX_RONDES):
         per_stuk = (float(totaal_usd) - kosten_usd) / len(nieuwe_tickers)
@@ -876,25 +960,110 @@ def _los_kosten_op(
         kosten, log = _kosten_van_orders(
             regels, orders, fx_rate, basiskost_pct, alleen=actief)
         nieuw_usd = round(kosten["totaal_eur"] * float(fx_rate), 8)
-        if abs(nieuw_usd - kosten_usd) < NAUWKEURIG_USD:
-            kosten_usd = nieuw_usd
-            break
+        stil = abs(nieuw_usd - kosten_usd) < NAUWKEURIG_USD
         kosten_usd = nieuw_usd
-    else:
-        raise ValueError(
-            "De Belgische kosten komen niet tot rust. Dat hoort niet te kunnen "
-            "bij kosten van minder dan een procent; er is iets mis met de "
-            "ingestelde tarieven."
-        )
+        if stil:
+            return {
+                "kosten_usd": kosten_usd,
+                "kosten": kosten,
+                "orders": orders,
+                "orderlog": log,
+                "doelen_usd": doelen,
+                "actief": sorted(actief),
+            }
 
-    return {
-        "kosten_usd": kosten_usd,
-        "kosten": kosten,
-        "orders": orders,
-        "orderlog": log,
-        "doelen_usd": doelen,
-        "actief": actief,
-    }
+    raise ValueError(
+        "De Belgische kosten komen niet tot rust bij een vaste lijst orders. "
+        "Dat hoort niet te kunnen bij kosten van minder dan een procent; er is "
+        "iets mis met de ingestelde tarieven."
+    )
+
+
+def _los_kosten_op(
+    regels: BelgischeRegels,
+    huidige_waarden_usd: Mapping[str, float],
+    nieuwe_tickers: Sequence[str],
+    totaal_usd: float,
+    fx_rate: float,
+    basiskost_pct: float,
+) -> dict:
+    """Zoekt de kosten EN de lijst orders die bij elkaar passen.
+
+    Twee dingen hangen hier van elkaar af, en ze moeten allebei kloppen:
+
+      * de HOOGTE van de kosten. Die hangt van de orders af, en de orders van de
+        kosten - de kosten bepalen immers hoeveel er te beleggen valt.
+      * WELKE aandelen een order krijgen. Dat hangt er ook van af: een aandeel
+        dat zonder kosten precies op gewicht staat, krijgt er met kosten alsnog
+        een klein order bij. En met een minimumkost per order verandert zo'n
+        order de kosten met een sprongetje in plaats van vloeiend.
+
+    Daarom staan er twee lussen in elkaar. De binnenste zoekt de kosten bij een
+    vaste lijst. De buitenste kijkt daarna of de UITKOMST werkelijk precies die
+    lijst oplevert, en rekent opnieuw als dat niet zo is. Pas als beide stil
+    staan, is de oplossing zelfconsistent: de orders in de lijst zijn precies de
+    orders die er zijn, en de kosten zijn die van die orders.
+
+    Zonder die buitenste lus kon de lijst ernaast liggen. Een order dat de
+    proefronde oversloeg, kwam dan niet in de kosten terecht terwijl het in de
+    oplossing wel verhandeld werd - met een minimumkost per order scheelt dat
+    een echt bedrag.
+
+    Blijft de lijst heen en weer springen, dan is er geen oplossing waarin alles
+    klopt. Dan STOPT het met een foutmelding. Een van de twee kiezen zou een
+    getal geven dat van de rekenrichting afhangt, en dat is geen narekenbaar
+    cijfer.
+    """
+    if not nieuwe_tickers:
+        raise ValueError("Geen nieuwe aandelen opgegeven.")
+
+    # Een eerste schatting, zodat de buitenste lus meestal in één ronde klaar
+    # is: de orders bij de doelbedragen min een ruwe kostenschatting. Die
+    # schatting hoort erbij - een aandeel dat zonder kosten precies op gewicht
+    # staat, krijgt er met kosten een klein order bij.
+    proef_doelen = {
+        t: float(totaal_usd) / len(nieuwe_tickers) for t in nieuwe_tickers}
+    proef_kosten, _ = _kosten_van_orders(
+        regels, _orders_van(huidige_waarden_usd, proef_doelen),
+        fx_rate, basiskost_pct)
+    schatting_usd = round(proef_kosten["totaal_eur"] * float(fx_rate), 8)
+    na_schatting = {
+        t: (float(totaal_usd) - schatting_usd) / len(nieuwe_tickers)
+        for t in nieuwe_tickers}
+    actief = _orders_boven_de_drempel(
+        _orders_van(huidige_waarden_usd, na_schatting), fx_rate)
+
+    gezien: List[List[str]] = []
+
+    for _ in range(MAX_RONDES):
+        if actief in gezien:
+            raise ValueError(
+                "De Belgische orderlijst komt niet tot rust: bij deze tarieven "
+                "wisselt hij tussen twee uitkomsten. Een order dat net boven de "
+                "eurocent uitkomt, verhoogt de kosten, en die kosten duwen het "
+                "weer onder de eurocent. Er is dan geen uitkomst waarin de "
+                "lijst orders en de kosten bij elkaar passen, en er wordt er "
+                "geen gekozen. Nagekeken lijsten: "
+                + " -> ".join("[" + ", ".join(lijst) + "]"
+                              for lijst in gezien + [actief])
+                + "."
+            )
+        gezien.append(actief)
+
+        uit = _kosten_bij_vaste_lijst(
+            regels, huidige_waarden_usd, nieuwe_tickers, totaal_usd, fx_rate,
+            basiskost_pct, actief)
+
+        werkelijk = _orders_boven_de_drempel(uit["orders"], fx_rate)
+        if werkelijk == actief:
+            return uit
+        actief = werkelijk
+
+    raise ValueError(
+        f"De Belgische orderlijst staat na {MAX_RONDES} rondes nog niet stil. "
+        "Er wordt niets geraamd op een lijst die niet bij haar eigen kosten "
+        "past."
+    )
 
 
 # ============================================================== de hele keten

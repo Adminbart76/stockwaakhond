@@ -913,6 +913,21 @@ if uitvoering is not None and waardering is not None:
                 "gerealiseerd en nog geen belasting te ramen."
             )
 
+        # De vrijstelling wordt elk jaar aangepast. Rekent een jaar nog met het
+        # bedrag van 2026, dan hoort dat erbij te staan: anders leest die raming
+        # als een zekerheid.
+        later = [b for b in jaren.values()
+                 if not b.get("regels_gelden_voor_dit_jaar", True)]
+        if later:
+            st.warning(
+                "De raming van "
+                + " en ".join(str(b["jaar"]) for b in later)
+                + " rekent nog met de vrijgestelde schijf van 2026. Dat bedrag "
+                "wordt elk jaar aangepast, dus die raming kan te hoog of te "
+                "laag staan zolang de regels van dat jaar hier niet ingevuld "
+                "zijn."
+            )
+
         f1, f2, f3 = st.columns(3)
         f1.metric("Portefeuillewaarde", eur(be_waarde["portefeuille_eur"]),
                   help="Wat er op de rekening staat.")
@@ -925,15 +940,24 @@ if uitvoering is not None and waardering is not None:
                        "bedrag gaat niet van je rekening: het is wat je beter "
                        "opzijhoudt tot je aangifte.")
 
+        vrijstelling = ("€ "
+                        + _komma(f"{be.REGELS_NU.meerwaarde_vrijstelling_eur:,.0f}"))
         st.caption(
             f"Op de winst die nog in de portefeuille zit "
             f"({eur(be_waarde['latente_meerwaarde_eur'])}) staat nog geen "
             "belasting. Die ontstaat pas op de dag dat er verkocht wordt. "
-            "De eerste € "
-            + _komma(f"{be.REGELS_NU.meerwaarde_vrijstelling_eur:,.0f}")
-            + " winst per jaar is vrijgesteld, en een verlies van hetzelfde "
-            "jaar gaat eerst van de winst af."
+            f"De eerste {vrijstelling} winst in "
+            f"{be.REGELS_NU.geldig_voor_inkomstenjaar} is vrijgesteld, en een "
+            "verlies van hetzelfde jaar gaat eerst van de winst af."
         )
+        # Anders leest "€ 0,00" als een veld dat nog niet ingevuld is, zoals de
+        # brokerkosten hierboven. Het is een uitkomst, geen ontbrekend getal.
+        if jaren and not be_waarde["meerwaardebelasting_eur"]:
+            st.caption(
+                "De belasting komt op nul uit omdat de winst onder die "
+                "vrijgestelde schijf blijft. Met een proef van duizend euro "
+                "zal dat ook zo blijven."
+            )
         if be_waarde["meerwaardebelasting_eur"]:
             st.caption(
                 "Met die reserve erbij kom je "
@@ -985,17 +1009,28 @@ if uitvoering is not None and waardering is not None:
                 "De gestippelde lijn is de Belgische rekening: de beurstaks en "
                 "de ingehouden belasting op dividend zijn eraf. De belasting op "
                 "winst bij verkoop zit er niet in — die gaat niet per dag van je "
-                "rekening. In deze lijn staat geen maatstaf: SPY is de maatstaf "
-                "van het onderzoek, en voor een Belgische particulier meestal "
-                "niet rechtstreeks te koop."
+                "rekening."
             )
+
+        # Expliciet, en niet alleen in de uitleg: anders kan iemand de maatstaf
+        # van het onderzoek alsnog als Belgische vergelijking lezen.
+        st.info(
+            "**Belgische praktijkbenchmark: nog niet gekozen.** Er staat hier "
+            "dus met niets vergeleken. SPY is de maatstaf van het onderzoek "
+            "hierboven en blijft dat; als Amerikaanse ETF is hij voor een "
+            "Belgische particulier meestal niet rechtstreeks te koop. Er komt "
+            "later een Europees fonds in de plaats, zodra er een broker "
+            "gekozen is."
+        )
 
         with st.expander("Welke Belgische regels zitten hierin?"):
             st.markdown(
                 f"**Regelversie**  \n`{be_keten['regels']}`\n\n"
-                "Deze versienaam hoort bij de tarieven van 2026. Verandert de "
-                "wet, dan komt er een nieuwe versie naast; zo verschuiven de "
-                "cijfers van 2026 nooit achteraf."
+                "Deze versienaam hoort bij de bedragen van inkomstenjaar "
+                f"{be.REGELS_NU.geldig_voor_inkomstenjaar}. De vrijstellingen "
+                "worden elk jaar aangepast en de wet kan wijzigen; dan komt er "
+                "een nieuwe versie naast deze. Zo verschuiven de cijfers van "
+                f"{be.REGELS_NU.geldig_voor_inkomstenjaar} nooit achteraf."
             )
             st.dataframe(
                 pd.DataFrame([{
@@ -1017,18 +1052,33 @@ if uitvoering is not None and waardering is not None:
                 "Nagekeken op "
                 + " en ".join(datum_nl(d, met_dag=False) for d in nagekeken) + "."
             )
+            # Alleen de statussen uitleggen die er werkelijk staan. Een uitleg
+            # bij "te bevestigen" terwijl geen enkele regel die status nog
+            # heeft, laat het lijken alsof er nog iets open staat.
+            uitleg_status = {
+                be.STATUS_EXACT:
+                    "het ligt vast in de wet of in de parlementaire stukken "
+                    "erbij",
+                be.STATUS_AANNAME:
+                    "een keuze die van de broker of van je persoonlijke "
+                    "situatie afhangt",
+                be.STATUS_TE_BEVESTIGEN:
+                    "dit bedrag moet nog nagekeken worden bij een officiële "
+                    "bron. Zolang dat niet gebeurd is, kan het cijfer eronder "
+                    "schuiven",
+                be.STATUS_NIET_INGESTELD:
+                    "hier staat nog niets, dus deze kost komt er nog bij",
+            }
+            aanwezig = {b["status"] for b in be.HERKOMST.values()}
             st.markdown(
-                "- **exact** betekent: een tarief dat vastligt in de wet.\n"
-                "- **aanname** betekent: een keuze die van de broker of van je "
-                "persoonlijke situatie afhangt.\n"
-                "- **te bevestigen** betekent: dit bedrag moet nog nagekeken "
-                "worden bij een officiële bron. Zolang dat niet gebeurd is, "
-                "kan het cijfer eronder schuiven.\n"
-                "- **nog niet ingesteld** betekent: hier staat nog niets, dus "
-                "deze kost komt er nog bij.\n\n"
-                "De volledige uitleg per regel staat in `BELGIE.md`. Wat hier "
-                "niet in zit: de beurstaks op andere soorten producten, en een "
-                "Belgische praktijkbenchmark — dat instrument is nog niet "
+                "\n".join(
+                    f"- **{status}** betekent: {tekst}."
+                    for status, tekst in uitleg_status.items()
+                    if status in aanwezig
+                )
+                + "\n\nDe volledige uitleg per regel staat in `BELGIE.md`. Wat "
+                "hier niet in zit: de beurstaks op andere soorten producten, en "
+                "een Belgische praktijkbenchmark — dat instrument is nog niet "
                 "gekozen."
             )
 

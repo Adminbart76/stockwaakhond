@@ -1,5 +1,15 @@
 # Vraag aan de controleur — ronde 6, 7 oktober 2026
 
+> **Beantwoord op 8 oktober 2026.** De controleur heeft dit pakket zelf
+> gedraaid: 279 van de 279 tests slaagden, `app.py` en `ledger.jsonl` waren
+> byte-identiek aan het bewijs, de bestaande hashes waren onaangeroerd en de
+> Belgische laag bleek werkelijk afgeleid en zonder schrijfweg. Er kwamen zes
+> gerichte correcties uit; ze zijn diezelfde dag uitgevoerd. Wat er veranderd
+> is, staat in `CLAUDE.md` onder "Auditronde 6" en in `BELGIE.md`. De tekst
+> hieronder blijft staan zoals ze voorgelegd is — alleen de status van ronde 5
+> is bijgewerkt, want die klopte niet meer. Lees de vragen hieronder dus als de
+> stand van 7 oktober, niet als de stand van nu.
+
 Dit pakket is de volledige broncode van StockWaakhond V7.1. Het bevat geen
 sleutels en geen wachtwoorden: alleen wat in de openbare GitHub-map staat
 (`Adminbart76/stockwaakhond`). Het commitnummer en de datum staan in
@@ -11,12 +21,14 @@ Belgische particulier zou overhouden als hij dezelfde trades werkelijk uitvoerde
 Ze rekent de beurstaks, de brokerkosten, de wisselkosten en de Belgische
 belasting op dividend en op winst bij verkoop.
 
-**Ronde 5 staat nog open.** Het antwoord op `audit/VRAAG_2026-10-07_ronde5.md`
-is nog niet binnen. Die vraag ging over het SPY-dividend op de ex-datum en over
-het verplichte wisselkoersbewijs, en blijft gewoon staan. De Belgische laag raakt
-geen van beide: ze is nieuw, ze schrijft nergens en ze gebruikt de bestaande
-dividend- en wisselkoersregels zoals ze zijn. Behandel de twee rondes dus los van
-elkaar.
+**Ronde 5 is intussen afgerond en groen bevonden** (bijgewerkt op 8 oktober
+2026; bij het schrijven van deze vraag stond ze nog open). De controleur heeft
+het pakket van ronde 5 zelf gedraaid: 232 van de 232 tests slaagden, de correctie
+op het SPY-dividend op de ex-datum zat erin, en het verplichte wisselkoersbewijs
+voor toekomstige herbalansen ook. Er zijn geen nieuwe bevindingen uit gekomen en
+er is niets aan die code gewijzigd. De Belgische laag hieronder raakt geen van
+beide onderwerpen: ze is nieuw, ze schrijft nergens en ze gebruikt de bestaande
+dividend- en wisselkoersregels zoals ze zijn.
 
 De vorige vragen (`audit/VRAAG_2026-10-07.md`, `..._ronde3.md`, `..._ronde4.md`,
 `..._ronde5.md`) zijn niet gewijzigd.

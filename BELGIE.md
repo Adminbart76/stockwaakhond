@@ -7,8 +7,12 @@ beantwoordt.
 **Dit is een indicatieve simulatie. Het is geen fiscale aangifte en geen
 persoonlijk beleggingsadvies.**
 
-Opgezet op 7 oktober 2026. Alle regels hieronder zijn op die dag nagekeken; per
-regel staat erbij waar ze vandaan komt en hoe zeker ze is.
+Opgezet op 7 oktober 2026, bijgewerkt op 8 oktober 2026 na de controle van
+auditronde 6. Per regel staat erbij waar ze vandaan komt en hoe zeker ze is.
+
+De bedragen hieronder horen bij **inkomstenjaar 2026** en staan in regelversie
+`BE_TAX_RULES_2026_V2`. De vrijstellingen worden elk jaar aangepast; een later
+jaar krijgt dus een eigen regelversie.
 
 ---
 
@@ -113,10 +117,20 @@ iets aan de opbouw verandert. De kost per order is dan:
 
     vast bedrag + percentage van het orderbedrag, met een minimum
 
-**Let op bij het invullen:** de forward-test rekent zelf al een transactiekost van
-0,15 %, en die staat hier voorlopig op de plaats van de brokerkosten. Komt er een
-echte brokerconfiguratie, dan hoort `basiskost_pct` op `0.0` te gaan — anders
-wordt dezelfde kost twee keer gerekend.
+**Dit kan niet verkeerd ingesteld worden.** De forward-test rekent zelf al een
+transactiekost van 0,15 % (`basiskost_pct`), en die staat hier voorlopig op de
+plaats van de brokerkosten. Zet iemand brokerkosten in zonder `basiskost_pct` op
+`0.0` te zetten, dan **stopt het met een foutmelding**: zo'n configuratie bestaat
+niet. Anders zou elk order twee keer betaald worden, en dat is aan de cijfers
+niet te zien.
+
+```python
+# dit werkt niet meer, en dat hoort zo
+be.met(regels, naam="...", broker_fixed_fee_per_order_eur=2.0)
+
+# zo wel: de basiskost gaat in dezelfde beweging naar nul
+be.met(regels, naam="...", broker_fixed_fee_per_order_eur=2.0, basiskost_pct=0.0)
+```
 
 **Wisselkosten.** De portefeuille wisselt één keer van euro naar dollar, bij de
 instap. De rotaties daarna zijn dollar naar dollar, dus daar wisselt er niets.
@@ -145,14 +159,13 @@ niet op 100. Anders zou de Amerikaanse heffing een tweede keer belast worden.
 |---|---|
 | **Wat** | de eerste schijf gewone dividenden per belastingplichtige per jaar is vrijgesteld |
 | **Bedrag** | 833 euro |
-| **Status** | **te bevestigen** |
-| **Bron** | doorgegeven door Bart op 7 oktober 2026 |
-| **Nagekeken** | 7 oktober 2026 |
+| **Status** | **bevestigd** |
+| **Bron** | FOD Financiën |
+| **Nagekeken** | 8 oktober 2026 |
 
-833 euro is het bedrag voor **inkomstenjaar 2025** (aanslagjaar 2026). Voor
-inkomstenjaar 2026 noemen publieke bronnen **859 euro**. Dat moet nog bevestigd
-worden bij een officiële bron. Het staat hier op 833 zoals opgedragen; wijzigen
-hoort te gebeuren met een nieuwe regelversie.
+833 euro geldt voor **inkomstenjaar 2026**; dat is nagekeken bij de FOD
+Financiën. Het bedrag van 859 euro dat op 7 oktober 2026 als mogelijk
+alternatief genoemd werd, is dus niet van toepassing.
 
 **De vrijstelling werkt niet aan de bron.** De voorheffing wordt altijd eerst
 ingehouden; je vraagt ze daarna terug met je belastingaangifte. Daarom staat dat
@@ -198,16 +211,33 @@ de Belgische laag rekent netto.
 |---|---|
 | **Tarief** | 10 % |
 | **Status van het tarief** | **exact** |
-| **Vrijgestelde schijf** | 4.855 euro per belastingplichtige per jaar |
-| **Status van de schijf** | **te bevestigen** |
-| **Bron van de schijf** | doorgegeven door Bart op 7 oktober 2026 |
-| **Nagekeken** | 7 oktober 2026 |
+| **Vrijgestelde schijf** | **10.000 euro** per belastingplichtige, voor inkomstenjaar 2026 |
+| **Status van de schijf** | **bevestigd** |
+| **Bron van de schijf** | Kamer, dossier 56K1244 |
+| **Nagekeken** | 8 oktober 2026 |
 
-> **Let op.** Publieke bronnen noemen voor deze vrijstelling **10.000 euro per
-> jaar per persoon, jaarlijks geïndexeerd**, en niet 4.855 euro. Dat verschil is
-> op 7 oktober 2026 gemeld en nog niet uitgeklaard. Zolang dat niet gebeurd is,
-> is de geraamde belasting op het dashboard mogelijk te hoog. Het bedrag staat op
-> 4.855 zoals opgedragen; een wijziging hoort een nieuwe regelversie te krijgen.
+### Basisbedrag en effectief bedrag zijn niet hetzelfde
+
+Twee bedragen die door elkaar gehaald kunnen worden:
+
+| | |
+|---|---|
+| **basisbedrag in de wettekst** | 4.855 euro |
+| **effectief vrijgesteld in 2026** | **10.000 euro** |
+
+De parlementaire stukken bij de aangenomen wet bepalen dat het basisbedrag voor
+inkomstenjaar 2026 zo wordt aangepast dat de vrijstelling **effectief 10.000
+euro** bedraagt. Dat laatste is wat hier gerekend wordt.
+
+Tot 8 oktober 2026 stond er 4.855 euro. Dat is niet stil rechtgezet: de oude
+instelling blijft als `BE_TAX_RULES_2026_V1` bestaan, en wat er nu gerekend
+wordt, heet `BE_TAX_RULES_2026_V2`. Zo is narekenbaar welk bedrag er wanneer
+gebruikt is.
+
+**Dit bedrag geldt alleen voor 2026.** Het wordt geïndexeerd, dus een later jaar
+hoort een eigen regelversie te krijgen. Zolang die er niet is, rekent de raming
+van dat jaar nog met het bedrag van 2026 — en dan zegt het dashboard dat er ook
+bij. Stil doorrekenen gebeurt niet.
 
 ### De rekenregels
 
@@ -235,9 +265,17 @@ twee eurobedragen.
 | | |
 |---|---|
 | **Wat** | de winst wordt gerekend op de orderbedragen, zonder de kosten erbij |
-| **Status** | **aanname**, nog na te gaan |
+| **Status** | **bevestigd** |
+| **Bron** | parlementaire toelichting bij de wet (Kamer, dossier 56K1244) |
+| **Nagekeken** | 8 oktober 2026 |
 
-Instelbaar met `kosten_in_meerwaardebasis`. Staat nu op `False`.
+De toelichting zegt het uitdrukkelijk: kosten bij aankoop of verkoop en
+belastingen zoals de beurstaks hebben **geen invloed** op de berekening van de
+meerwaarde. Ze gaan dus wel van de rekening af, maar niet van de belastbare
+winst.
+
+Instelbaar met `kosten_in_meerwaardebasis`. Staat op `False` en dat is geen
+aanname meer.
 
 ### Geen posities van vóór 2026
 
@@ -288,12 +326,20 @@ brokerkosten.
 
 ## 9. Een wetswijziging verandert nooit het verleden
 
-De hele configuratie heeft een versienaam: **`BE_TAX_RULES_2026_V1`**.
+De hele configuratie heeft een versienaam. Er zijn er nu twee:
 
-Verandert er iets aan de wet, dan komt er een nieuwe versie **naast** deze, met
-een eigen naam. Zo kan een wijziging in 2027 nooit stil de cijfers van 2026
-veranderen. Dezelfde regel als voor de strategie zelf: een wijziging is een
-nieuwe versie, nooit een stille aanpassing.
+| versie | wat erin staat | wordt ermee gerekend? |
+|---|---|---|
+| `BE_TAX_RULES_2026_V1` | de vrijstelling op meerwaarde op het wettelijke basisbedrag van 4.855 euro | nee, historisch spoor |
+| `BE_TAX_RULES_2026_V2` | diezelfde vrijstelling op de 10.000 euro die in 2026 effectief geldt | **ja** |
+
+V1 is op 8 oktober 2026 niet bijgewerkt maar bewaard. Zo blijft narekenbaar met
+welk bedrag er vóór die dag gerekend werd.
+
+Verandert er iets aan de wet of wordt een bedrag geïndexeerd, dan komt er een
+nieuwe versie **naast** deze, met een eigen naam. Zo kan een wijziging in 2027
+nooit stil de cijfers van 2026 veranderen. Dezelfde regel als voor de strategie
+zelf: een wijziging is een nieuwe versie, nooit een stille aanpassing.
 
 ---
 
@@ -324,6 +370,7 @@ staat:
 | `fx_conversion_fee_pct` | Wisselkost van de broker |
 | `basiskost_pct` | Transactiekost van de forward-test |
 | `kosten_in_meerwaardebasis` | Tellen de kosten mee bij het berekenen van de winst? |
+| `geldig_voor_inkomstenjaar` | het jaar waar deze bedragen bij horen |
 
 Een parameter wijzigen doe je met `be.met(regels, naam="...", ...)`. Dat maakt een
 kopie; de standaardregels blijven staan zoals ze zijn.
@@ -332,8 +379,26 @@ kopie; de standaardregels blijven staan zoals ze zijn.
 
 De kosten bepalen hoeveel er te beleggen valt, en wat er te beleggen valt bepaalt
 de orders, en de orders bepalen de kosten. Dat kringetje wordt doorgerekend tot
-het stilstaat (`_los_kosten_op`). Bij kosten van een half procent is dat na drie
-of vier rondes het geval, en het geeft voor iedereen hetzelfde getal.
+het stilstaat (`_los_kosten_op`).
+
+Er moeten **twee** dingen tegelijk kloppen:
+
+1. de **hoogte** van de kosten;
+2. **welke** aandelen een order krijgen. Dat hangt er ook van af: een aandeel
+   dat zonder kosten precies op gewicht staat, krijgt er met kosten alsnog een
+   klein order bij.
+
+Daarom staan er twee lussen in elkaar. De binnenste zoekt de kosten bij een
+vaste lijst orders; de buitenste kijkt daarna of de uitkomst werkelijk precies
+die lijst oplevert, en rekent opnieuw als dat niet zo is. Pas als beide stil
+staan is het antwoord zelfconsistent: de orders in de lijst zijn precies de
+orders die er zijn.
+
+Blijft de lijst heen en weer springen — met een minimumkost per order kan een
+order dat net boven de eurocent uitkomt zichzelf er weer onder duwen — dan is er
+geen antwoord waarin alles klopt. **Dan stopt het met een foutmelding.** Een van
+de twee kiezen zou een getal geven dat van de rekenrichting afhangt, en dat is
+niet narekenbaar.
 
 Dat moet hier, en in `sw/realistisch.py` niet: de beurstaks en de gerealiseerde
 winst hangen allebei af van het exacte orderbedrag, een gemiddeld
@@ -343,12 +408,15 @@ kostenpercentage volstaat dus niet.
 
 ## 11. Wat er nog moet gebeuren
 
-1. **De vrijgestelde schijf van de meerwaardebelasting bevestigen.** 4.855 euro
-   of 10.000 euro — zie hoofdstuk 6.
-2. **De dividendvrijstelling bevestigen** voor inkomstenjaar 2026: 833 of 859
-   euro.
-3. **Een broker kiezen** en de vier kostenparameters invullen (en dan
-   `basiskost_pct` op 0 zetten).
-4. **Een Belgische praktijkbenchmark kiezen**: een UCITS-instrument, met zijn
-   eigen kosten en dividendbeleid.
-5. **Nagaan of transactiekosten in de meerwaardebasis mogen.**
+1. **Een broker kiezen** en de vier kostenparameters invullen. `basiskost_pct`
+   moet dan in dezelfde stap op 0 — anders weigert de configuratie zichzelf.
+2. **Een Belgische praktijkbenchmark kiezen**: een UCITS-instrument, met zijn
+   eigen kosten en dividendbeleid. SPY komt daar niet voor in aanmerking.
+3. **Een regelversie voor 2027 maken** zodra de geïndexeerde bedragen van dat
+   jaar bekend zijn. Tot dan rekent een raming over 2027 nog met de bedragen van
+   2026, en zegt het dashboard dat erbij.
+
+Afgehandeld op 8 oktober 2026, na auditronde 6: de vrijgestelde schijf van de
+meerwaardebelasting (10.000 euro, hoofdstuk 6), de dividendvrijstelling (833
+euro, hoofdstuk 5) en de vraag of transactiekosten in de meerwaardebasis mogen
+(nee, hoofdstuk 6).

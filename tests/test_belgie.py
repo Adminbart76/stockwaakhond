@@ -9,7 +9,7 @@ Twee dingen worden met opzet op twee niveaus getest:
 
   * de fiscale rekenregels los, met bedragen die groot genoeg zijn om de
     vrijstellingen te raken. Met 1.000 euro kom je nooit aan een meerwaarde van
-    4.855 euro, dus zou dat deel van de wet anders nooit getest worden;
+    10.000 euro, dus zou dat deel van de wet anders nooit getest worden;
   * de hele keten, met de bedragen die er werkelijk zijn.
 """
 
@@ -30,7 +30,7 @@ KOERS = {t: 100.0 for t in VIJF + ANDERE_VIJF}
 KOERS["SPY"] = 500.0
 FX = 1.10
 
-REGELS = be.BE_TAX_RULES_2026_V1
+REGELS = be.BE_TAX_RULES_2026_V2
 
 
 @pytest.fixture
@@ -66,8 +66,86 @@ def wissel_na(vorige, datum, nieuwe_tickers, koersen, nummer=2, **extra):
 # ===================================================== de regels zelf
 def test_de_regelversie_heeft_een_naam():
     """Een wetswijziging in 2027 mag 2026 niet stil veranderen."""
-    assert REGELS.naam == "BE_TAX_RULES_2026_V1"
+    assert REGELS.naam == "BE_TAX_RULES_2026_V2"
     assert be.REGELS_NU is REGELS
+
+
+def test_de_vorige_regelversie_blijft_bestaan_als_spoor():
+    """V1 is het historische spoor en wordt niet achteraf bijgewerkt.
+
+    Zo blijft narekenbaar met welk bedrag er vóór 8 oktober 2026 gerekend werd.
+    """
+    assert be.BE_TAX_RULES_2026_V1.naam == "BE_TAX_RULES_2026_V1"
+    assert be.BE_TAX_RULES_2026_V1.meerwaarde_vrijstelling_eur == pytest.approx(
+        4855.0), "V1 houdt het wettelijke basisbedrag."
+    assert be.REGELS_NU is not be.BE_TAX_RULES_2026_V1
+
+
+def test_de_vrijstelling_op_meerwaarde_is_het_effectieve_bedrag_van_2026():
+    """Het basisbedrag van de wettekst is niet wat er vrijgesteld wordt.
+
+    De parlementaire stukken bij de aangenomen wet bepalen dat de vrijstelling
+    voor inkomstenjaar 2026 effectief 10.000 euro bedraagt. Dat is het bedrag
+    waarmee gerekend hoort te worden.
+    """
+    assert be.MEERWAARDE_VRIJSTELLING_BASISBEDRAG_EUR == pytest.approx(4855.0)
+    assert be.MEERWAARDE_VRIJSTELLING_EFFECTIEF_2026_EUR == pytest.approx(10_000.0)
+    assert REGELS.meerwaarde_vrijstelling_eur == pytest.approx(10_000.0)
+
+    herkomst = be.HERKOMST["meerwaarde_vrijstelling_eur"]
+    assert herkomst["status"] == be.STATUS_EXACT
+    assert "10.000" in herkomst["waarde"]
+    assert "56K1244" in herkomst["bron"]
+
+
+def test_de_dividendvrijstelling_van_833_euro_is_bevestigd():
+    assert REGELS.dividend_vrijstelling_eur == pytest.approx(833.0)
+
+    herkomst = be.HERKOMST["dividend_vrijstelling_eur"]
+    assert herkomst["status"] == be.STATUS_EXACT
+    assert "859" not in str(herkomst), (
+        "Het alternatieve bedrag van 859 euro is nagekeken en niet van "
+        "toepassing; het hoort niet meer in de herkomst te staan."
+    )
+
+
+def test_de_kosten_blijven_buiten_de_meerwaardebasis_en_dat_staat_vast():
+    """Geen aanname meer: de parlementaire toelichting zegt het uitdrukkelijk."""
+    assert REGELS.kosten_in_meerwaardebasis is False
+    herkomst = be.HERKOMST["kosten_in_meerwaardebasis"]
+    assert herkomst["status"] == be.STATUS_EXACT
+    assert "56K1244" in herkomst["bron"]
+
+
+def test_geen_enkele_regel_staat_nog_te_bevestigen():
+    """Wat er op het scherm komt, is nagekeken of eerlijk als aanname gemeld."""
+    open_punten = [sleutel for sleutel, blok in be.HERKOMST.items()
+                   if blok["status"] == be.STATUS_TE_BEVESTIGEN]
+    assert open_punten == [], (
+        "Deze regels staan nog als 'te bevestigen': " + ", ".join(open_punten)
+    )
+
+
+def test_de_regels_dragen_hun_eigen_inkomstenjaar():
+    """De bedragen worden geïndexeerd, dus ze horen bij één jaar.
+
+    Een raming over een ander jaar wordt wel gerekend, maar nooit stil: het
+    jaarblok zegt zelf dat de regels er niet bij horen.
+    """
+    assert REGELS.geldig_voor_inkomstenjaar == 2026
+
+    jaren = be.meerwaardejaren([
+        {"verkoop_datum": "2026-11-04", "resultaat_eur": 12_000.0},
+        {"verkoop_datum": "2027-03-02", "resultaat_eur": 12_000.0},
+    ], REGELS)
+
+    assert jaren[2026]["regels_gelden_voor_dit_jaar"] is True
+    assert jaren[2027]["regels_gelden_voor_dit_jaar"] is False, (
+        "2027 heeft een eigen, geïndexeerd bedrag en dus een eigen regelversie "
+        "nodig. Zolang die er niet is, moet dat zichtbaar zijn."
+    )
+    assert jaren[2027]["regelversie"] == "BE_TAX_RULES_2026_V2"
+    assert jaren[2027]["regels_voor_inkomstenjaar"] == 2026
 
 
 def test_brokerkosten_staan_standaard_op_nul_en_dat_is_zichtbaar():
@@ -92,11 +170,14 @@ def test_een_brokerconfiguratie_kan_er_zonder_bouwwerk_in(instap):
     """De laag moet later aan een echte broker gekoppeld kunnen worden."""
     met_broker = be.met(
         REGELS,
-        naam="BE_TAX_RULES_2026_V1+broker-test",
+        naam="BE_TAX_RULES_2026_V2+broker-test",
         broker_fixed_fee_per_order_eur=2.0,
         broker_variable_fee_pct=0.05,
         broker_minimum_fee_eur=3.0,
         fx_conversion_fee_pct=0.25,
+        # Verplicht zodra er een broker staat: anders betaalt elk order twee
+        # keer. Zie de test hieronder.
+        basiskost_pct=0.0,
     )
     assert met_broker.broker_ingesteld is True
     assert be.brokerkost_eur(met_broker, 200.0) == pytest.approx(3.0), (
@@ -110,6 +191,38 @@ def test_een_brokerconfiguratie_kan_er_zonder_bouwwerk_in(instap):
     assert met["kosten_totaal"]["fx_eur"] > 0
     assert met["kosten_totaal"]["totaal_eur"] > zonder["kosten_totaal"]["totaal_eur"]
     assert REGELS.broker_ingesteld is False, "De standaardregels blijven ongemoeid."
+
+
+def test_een_broker_naast_de_basiskost_kan_niet_ingesteld_worden():
+    """Fail-closed: dezelfde kost twee keer rekenen is geen instelling.
+
+    `basiskost_pct` staat op de PLAATS van de brokerkosten zolang er geen broker
+    is. Blijft hij staan terwijl er een broker bijkomt, dan betaalt elk order
+    twee keer, en dat is aan de cijfers niet te zien. Een waarschuwing in de
+    documentatie is niet genoeg; zo'n configuratie bestaat hier niet.
+    """
+    for wijziging in (
+        {"broker_fixed_fee_per_order_eur": 2.0},
+        {"broker_variable_fee_pct": 0.25},
+        {"broker_minimum_fee_eur": 5.0},
+    ):
+        with pytest.raises(ValueError, match="twee keer gerekend"):
+            be.met(REGELS, naam="broker-zonder-nul", **wijziging)
+
+        # Met de basiskost expliciet op nul kan het wel.
+        goed = be.met(REGELS, naam="broker-met-nul", basiskost_pct=0.0, **wijziging)
+        assert goed.broker_ingesteld is True
+        assert goed.basiskost_pct == 0.0
+
+    # Een niet-nul basiskost naast een broker kan evenmin.
+    with pytest.raises(ValueError, match="twee keer gerekend"):
+        be.met(REGELS, naam="broker-met-0.15", basiskost_pct=0.15,
+               broker_fixed_fee_per_order_eur=2.0)
+
+    # Wisselkosten zijn geen brokerkost per order en mogen dus wel naast de
+    # basiskost staan: ze dubbelen niets.
+    assert be.met(REGELS, naam="alleen-wissel",
+                  fx_conversion_fee_pct=0.25).fx_kosten_ingesteld is True
 
 
 # ============================================================== de beurstaks
@@ -217,6 +330,187 @@ def test_een_aandeel_dat_precies_op_gewicht_blijft_geeft_geen_order(instap):
         "Geen order is geen beurstaks en geen brokerkost."
     )
     assert uit["verkopen"] == []
+
+
+# ================================================= de lijst orders en de kosten
+# De kosten hangen van de orders af en de orders van de kosten. Welke aandelen
+# een order KRIJGEN hangt er ook van af. De oplossing moet op beide punten bij
+# zichzelf passen: de orders in de lijst zijn precies de orders die er zijn.
+MIN_ORDER_USD = be.MINIMUM_ORDER_EUR * FX
+
+
+def _zelfconsistent(uit: dict) -> bool:
+    """Levert de uitkomst precies de lijst orders op waarmee ze gerekend is?"""
+    return be._orders_boven_de_drempel(uit["orders"], FX) == uit["actief"]
+
+
+def test_een_order_dat_door_de_kosten_boven_de_cent_komt_telt_mee():
+    """A staat precies op zijn doel VOOR de kosten, dus niet erna.
+
+    Zonder kosten zou A's doel 1.000 / 5 = 200 dollar zijn - precies wat hij al
+    waard is, dus geen order. De kosten verlagen dat doel, en dan moet er wel
+    iets van A verkocht worden. Die kost hoort dus meegerekend te worden.
+    """
+    huidig = {"A": 200.0, "B": 300.0, "C": 300.0, "D": 100.0, "E": 100.0}
+    uit = be._los_kosten_op(REGELS, huidig, list("ABCDE"), 1000.0, FX, 0.15)
+
+    assert uit["actief"] == list("ABCDE")
+    assert abs(uit["orders"]["A"]) > MIN_ORDER_USD
+    assert [o["ticker"] for o in uit["orderlog"]] == list("ABCDE")
+    assert [o for o in uit["orderlog"] if o["ticker"] == "A"][0]["kant"] == "verkoop"
+    assert _zelfconsistent(uit)
+
+
+def test_een_order_dat_door_de_kosten_onder_de_cent_zakt_verdwijnt():
+    """De omgekeerde richting: A staat precies op zijn doel NA de kosten.
+
+    Narekenbaar: bij een doelbedrag van 199,50 dollar zijn de vier andere orders
+    100,50 + 100,50 + 99,50 + 99,50 dollar. Daar is samen 2 dollar kosten op
+    (0,35 % beurstaks plus 0,15 % transactiekost), en (800 - 2) / 4 is weer
+    precies 199,50. A staat daar al, dus A krijgt geen order - ook al zou hij er
+    zonder kosten een van 40 cent krijgen.
+    """
+    huidig = {"A": 199.50, "B": 300.0, "C": 300.0, "D": 100.0, "E": 100.0}
+    totaal = 999.50
+
+    zonder_kosten = totaal / 5 - 199.50
+    assert zonder_kosten > MIN_ORDER_USD, (
+        "Zonder kosten zou hier wel een order staan; anders test dit niets."
+    )
+
+    uit = be._los_kosten_op(REGELS, huidig, list("ABCDE"), totaal, FX, 0.15)
+
+    assert uit["actief"] == list("BCDE"), "A hoort er niet in te staan."
+    assert [o["ticker"] for o in uit["orderlog"]] == list("BCDE")
+    assert abs(uit["orders"]["A"]) < MIN_ORDER_USD
+    assert _zelfconsistent(uit)
+
+
+def test_een_minimumkost_per_order_blijft_zelfconsistent():
+    """Een minimumkost springt met een sprongetje; de lijst moet blijven kloppen.
+
+    Dit is de configuratie waarin het vroeger mis kon gaan: de lijst werd één
+    keer vooraf bepaald en daarna vastgehouden, zodat er een minimumkost van
+    vijf euro gerekend kon worden over een order dat er niet was.
+    """
+    regels = be.met(REGELS, naam="min-5-euro", basiskost_pct=0.0,
+                    broker_minimum_fee_eur=5.0)
+    huidig = {"A": 194.0, "B": 201.5, "C": 201.5, "D": 201.5, "E": 201.5}
+    uit = be._los_kosten_op(regels, huidig, list("ABCDE"), 1000.0, FX, 0.0)
+
+    assert _zelfconsistent(uit)
+    assert uit["actief"] == list("ABCDE")
+    assert uit["kosten"]["broker_eur"] == pytest.approx(25.0), (
+        "Vijf orders, elk het minimum van vijf euro."
+    )
+    for regel in uit["orderlog"]:
+        assert regel["broker_eur"] == pytest.approx(5.0)
+
+
+def test_een_vaste_kost_per_order_blijft_zelfconsistent():
+    regels = be.met(REGELS, naam="vast-2-euro", basiskost_pct=0.0,
+                    broker_fixed_fee_per_order_eur=2.0)
+    uit = be._los_kosten_op(regels, {}, list("ABCDE"), 1000.0, FX, 0.0)
+
+    assert _zelfconsistent(uit)
+    assert uit["kosten"]["broker_eur"] == pytest.approx(10.0), "Vijf keer 2 euro."
+
+
+def test_het_plafond_op_de_beurstaks_breekt_de_berekening_niet():
+    """Boven 457.143 euro per order staat de taks stil op 1.600 euro.
+
+    Een vlak stuk in de kostenfunctie mag de berekening niet laten dwalen.
+    """
+    uit = be._los_kosten_op(REGELS, {}, list("ABCDE"), 5_000_000_000.0, FX, 0.15)
+
+    assert _zelfconsistent(uit)
+    assert uit["kosten"]["tob_eur"] == pytest.approx(5 * 1600.0)
+    for regel in uit["orderlog"]:
+        assert regel["tob_eur"] == pytest.approx(1600.0)
+
+
+def test_een_orderlijst_die_blijft_wisselen_geeft_een_harde_fout():
+    """Is er geen zelfconsistente oplossing, dan komt er geen cijfer.
+
+    Bij een minimumkost van vijf euro bestaat er een stand waarin het ene
+    antwoord het andere uitsluit: zet je A in de lijst, dan duwen de vijf euro
+    kosten zijn order onder de eurocent; laat je hem eruit, dan heeft hij een
+    order van ongeveer een euro. Beide antwoorden spreken zichzelf tegen.
+
+    Vroeger kwam daar stil een getal uit - vijf euro kosten over een order van
+    nul dollar. Nu stopt het, want welk van de twee je kiest hangt af van de
+    rekenrichting en dat is niet narekenbaar.
+    """
+    regels = be.met(REGELS, naam="min-5-euro", basiskost_pct=0.0,
+                    broker_minimum_fee_eur=5.0)
+    huidig = {"A": 194.48, "B": 201.38, "C": 201.38, "D": 201.38, "E": 201.38}
+
+    with pytest.raises(ValueError, match="komt niet tot rust"):
+        be._los_kosten_op(regels, huidig, list("ABCDE"), 1000.0, FX, 0.0)
+
+
+@pytest.mark.parametrize("naam_regels,wijziging", [
+    ("zonder brokerkosten", {}),
+    ("vaste kost per order", {"basiskost_pct": 0.0,
+                              "broker_fixed_fee_per_order_eur": 2.0}),
+    ("kost in procent", {"basiskost_pct": 0.0, "broker_variable_fee_pct": 0.5}),
+    ("minimumkost per order", {"basiskost_pct": 0.0,
+                               "broker_minimum_fee_eur": 5.0}),
+    ("alles samen", {"basiskost_pct": 0.0,
+                     "broker_fixed_fee_per_order_eur": 1.0,
+                     "broker_variable_fee_pct": 0.25,
+                     "broker_minimum_fee_eur": 3.0,
+                     "fx_conversie_bij_elke_order": True,
+                     "fx_conversion_fee_pct": 0.5}),
+])
+def test_de_uitkomst_past_altijd_bij_haar_eigen_orderlijst(naam_regels, wijziging):
+    """De wachter op de hele zoektocht, over scherpe en stompe standen.
+
+    Voor elke stand geldt: of er komt een uitkomst waarin de lijst orders
+    precies de orders zijn die er zijn, of er komt een foutmelding. Nooit een
+    uitkomst waarin de twee uiteenlopen - dan zou er een kost op een order staan
+    dat niet bestaat, of een order zonder kost.
+    """
+    regels = be.met(REGELS, naam=f"test-{naam_regels}", **wijziging)
+    tickers = list("ABCDE")
+
+    standen = {
+        "volledige rotatie": {"V": 200.0, "W": 200.0, "X": 200.0,
+                              "Y": 200.0, "Z": 200.0},
+        "gedeeltelijke rotatie": {"A": 300.0, "B": 300.0, "C": 200.0,
+                                  "Y": 100.0, "Z": 100.0},
+        "alles al op gewicht": {t: 200.0 for t in tickers},
+        "instap uit contant geld": {},
+        "een aandeel net naast zijn doel": {
+            "A": 199.99, "B": 200.0, "C": 200.0, "D": 200.0, "E": 200.01},
+        "een aandeel precies op zijn doel": {
+            "A": 200.0, "B": 300.0, "C": 300.0, "D": 100.0, "E": 100.0},
+        "een aandeel op zijn doel na de kosten": {
+            "A": 199.50, "B": 300.0, "C": 300.0, "D": 100.0, "E": 100.0},
+        "een cent naast de drempel": {
+            "A": 1000.0 - 0.01105, "B": 0.0, "C": 0.0, "D": 0.0, "E": 0.0},
+    }
+
+    for naam, huidig in standen.items():
+        totaal = round(sum(huidig.values()) or 1000.0, 8)
+        try:
+            uit = be._los_kosten_op(regels, huidig, tickers, totaal, FX, 0.15)
+        except ValueError as fout:
+            assert ("niet tot rust" in str(fout)
+                    or "niets over om te beleggen" in str(fout)), (
+                f"{naam}: onverwachte foutmelding - {fout}"
+            )
+            continue
+
+        assert _zelfconsistent(uit), (
+            f"{naam}: de lijst {uit['actief']} past niet bij de orders "
+            f"{be._orders_boven_de_drempel(uit['orders'], FX)}."
+        )
+        gerekend = sorted(o["ticker"] for o in uit["orderlog"])
+        assert gerekend == uit["actief"], (
+            f"{naam}: er is kost gerekend voor {gerekend} en niet voor "
+            f"{uit['actief']}."
+        )
 
 
 # ======================================================== FIFO en meerwaarde
@@ -394,70 +688,102 @@ def test_dividendgeld_dat_meebelegd_wordt_betaalt_maar_een_keer_beurstaks(instap
 
 
 # ============================= de meerwaardebelasting los, met echte bedragen
-def test_de_vrijstelling_van_4855_euro_wordt_eerst_opgebruikt():
+def test_de_vrijstelling_van_10000_euro_wordt_eerst_opgebruikt():
     verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 4000.0}]
     jaar = be.meerwaardejaren(verkopen, REGELS)[2026]
 
-    assert jaar["vrijstelling_beschikbaar_eur"] == pytest.approx(4855.0)
+    assert jaar["vrijstelling_beschikbaar_eur"] == pytest.approx(10_000.0)
     assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(4000.0)
     assert jaar["belastbare_basis_eur"] == pytest.approx(0.0)
     assert jaar["belasting_eur"] == pytest.approx(0.0)
 
 
+def test_net_onder_de_vrijstelling_is_er_geen_belasting():
+    """9.999 euro winst: de hele schijf is nog niet op."""
+    jaar = be.meerwaardejaren(
+        [{"verkoop_datum": "2026-11-04", "resultaat_eur": 9_999.0}], REGELS)[2026]
+
+    assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(9_999.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(0.0)
+    assert jaar["belasting_eur"] == pytest.approx(0.0)
+
+
+def test_precies_op_de_vrijstelling_is_er_geen_belasting():
+    """Exact 10.000 euro winst: de grens zelf is nog vrijgesteld."""
+    jaar = be.meerwaardejaren(
+        [{"verkoop_datum": "2026-11-04", "resultaat_eur": 10_000.0}], REGELS)[2026]
+
+    assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(10_000.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(0.0)
+    assert jaar["belasting_eur"] == pytest.approx(0.0)
+
+
+def test_een_euro_boven_de_vrijstelling_kost_tien_cent():
+    """10.001 euro winst: alleen die ene euro is belastbaar."""
+    jaar = be.meerwaardejaren(
+        [{"verkoop_datum": "2026-11-04", "resultaat_eur": 10_001.0}], REGELS)[2026]
+
+    assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(10_000.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(1.0)
+    assert jaar["belasting_eur"] == pytest.approx(0.10)
+
+
 def test_boven_de_vrijstelling_geldt_tien_procent():
-    verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 10_000.0}]
+    verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 15_000.0}]
     jaar = be.meerwaardejaren(verkopen, REGELS)[2026]
 
-    assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(4855.0)
-    assert jaar["belastbare_basis_eur"] == pytest.approx(5145.0)
+    assert jaar["gebruikte_vrijstelling_eur"] == pytest.approx(10_000.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(5_000.0)
     assert jaar["tarief_pct"] == 10.0
-    assert jaar["belasting_eur"] == pytest.approx(514.50)
+    assert jaar["belasting_eur"] == pytest.approx(500.0)
 
 
 def test_minderwaarden_van_hetzelfde_jaar_gaan_eerst_van_de_meerwaarden_af():
     verkopen = [
-        {"verkoop_datum": "2026-05-04", "resultaat_eur": 10_000.0},
+        {"verkoop_datum": "2026-05-04", "resultaat_eur": 20_000.0},
         {"verkoop_datum": "2026-11-04", "resultaat_eur": -3_000.0},
     ]
     jaar = be.meerwaardejaren(verkopen, REGELS)[2026]
 
-    assert jaar["meerwaarden_eur"] == pytest.approx(10_000.0)
+    assert jaar["meerwaarden_eur"] == pytest.approx(20_000.0)
     assert jaar["minderwaarden_eur"] == pytest.approx(3_000.0)
-    assert jaar["netto_gerealiseerd_eur"] == pytest.approx(7_000.0)
-    assert jaar["belastbare_basis_eur"] == pytest.approx(2_145.0)
-    assert jaar["belasting_eur"] == pytest.approx(214.50)
+    assert jaar["netto_gerealiseerd_eur"] == pytest.approx(17_000.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(7_000.0)
+    assert jaar["belasting_eur"] == pytest.approx(700.0)
 
 
 def test_een_verlies_gaat_niet_over_naar_het_volgende_jaar():
     verkopen = [
         {"verkoop_datum": "2026-11-04", "resultaat_eur": -8_000.0},
-        {"verkoop_datum": "2027-03-02", "resultaat_eur": 10_000.0},
+        {"verkoop_datum": "2027-03-02", "resultaat_eur": 25_000.0},
     ]
     jaren = be.meerwaardejaren(verkopen, REGELS)
 
     assert jaren[2026]["belasting_eur"] == pytest.approx(0.0)
-    assert jaren[2027]["belastbare_basis_eur"] == pytest.approx(5_145.0), (
+    assert jaren[2027]["belastbare_basis_eur"] == pytest.approx(15_000.0), (
         "Het verlies van 2026 verlaagt de basis van 2027 niet."
     )
 
 
 def test_een_elders_gebruikte_meerwaardevrijstelling_vermindert_de_onze():
+    """De vrijstelling is persoonlijk: wat elders op is, is hier op."""
     regels = be.met(
         REGELS,
-        naam="BE_TAX_RULES_2026_V1+extern",
+        naam="BE_TAX_RULES_2026_V2+extern",
         external_capital_gain_exemption_used_eur=4_000.0,
     )
-    verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 5_000.0}]
+    verkopen = [{"verkoop_datum": "2026-11-04", "resultaat_eur": 15_000.0}]
     jaar = be.meerwaardejaren(verkopen, regels)[2026]
 
-    assert jaar["vrijstelling_beschikbaar_eur"] == pytest.approx(855.0)
-    assert jaar["belastbare_basis_eur"] == pytest.approx(4_145.0)
-    assert jaar["belasting_eur"] == pytest.approx(414.50)
+    assert jaar["vrijstelling_totaal_eur"] == pytest.approx(10_000.0)
+    assert jaar["vrijstelling_beschikbaar_eur"] == pytest.approx(6_000.0)
+    assert jaar["belastbare_basis_eur"] == pytest.approx(9_000.0)
+    assert jaar["belasting_eur"] == pytest.approx(900.0)
 
 
 def test_een_volledig_elders_gebruikte_vrijstelling_laat_niets_over():
     regels = be.met(
-        REGELS, naam="test", external_capital_gain_exemption_used_eur=9_000.0)
+        REGELS, naam="test", external_capital_gain_exemption_used_eur=12_000.0)
     jaar = be.meerwaardejaren(
         [{"verkoop_datum": "2026-11-04", "resultaat_eur": 1_000.0}], regels)[2026]
 

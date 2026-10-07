@@ -12,7 +12,7 @@ stappen die hij werkelijk zelf moet doen.
 | GitHub | `Adminbart76/stockwaakhond`, **publiek** sinds 6 oktober 2026 |
 | Supabase | project `StockWaakhond`, `ibdscndklmgvseksgrkb`, EU West (Ierland), gratis plan |
 | Dashboard online | **https://stockwaakhond.streamlit.app** — draait sinds 6 oktober 2026 |
-| Tests | 279, groen op 7 oktober 2026 (`python -m pytest`) |
+| Tests | 300, groen op 8 oktober 2026 (`python -m pytest`) |
 
 De repo moest publiek omdat Streamlit Community Cloud op het gratis plan geen
 privé-repo's leest. Nagekeken vóór het omzetten: geen sleutel en geen wachtwoord
@@ -262,6 +262,30 @@ met hun bron in `BELGIE.md`:
     wordt later een UCITS-instrument; de plaats ervoor staat klaar
     (`PraktijkBenchmark`, nu `None`) en er is er nog geen gekozen.
 
+Daar kwamen op 8 oktober 2026 deze drie bij, na het antwoord op auditronde 6:
+
+31. **De vrijstelling op meerwaarde is voor 2026 effectief 10.000 euro, en dat
+    staat in een NIEUWE regelversie.** `BE_TAX_RULES_2026_V1` (met het
+    wettelijke basisbedrag van 4.855 euro) blijft onaangeroerd bestaan als
+    historisch spoor; `BE_TAX_RULES_2026_V2` is wat er gerekend wordt
+    (`REGELS_NU`). Reden: het basisbedrag in de wettekst is niet het bedrag dat
+    toegepast wordt - de parlementaire stukken bij de aangenomen wet bepalen dat
+    het voor inkomstenjaar 2026 zo wordt aangepast dat de vrijstelling effectief
+    10.000 euro bedraagt (Kamer, dossier 56K1244). Een correctie is hier dus
+    nooit een stille aanpassing van een bestaande versie.
+32. **De regels dragen hun eigen inkomstenjaar.** `geldig_voor_inkomstenjaar`
+    staat op 2026. Een raming over een later jaar wordt wel gerekend - anders
+    verdwijnt ze helemaal - maar krijgt op het dashboard de melding dat ze nog
+    met de bedragen van 2026 rekent. Reden: de vrijstellingen worden
+    geïndexeerd, en een geraamd bedrag dat op het verkeerde jaar rust mag niet
+    als zekerheid lezen. 2027 hoort een eigen regelversie te krijgen.
+33. **Brokerkosten naast de basiskost van 0,15 % kunnen niet ingesteld worden.**
+    `BelgischeRegels.__post_init__` weigert elke configuratie waarin
+    `broker_ingesteld` waar is en `basiskost_pct` niet expliciet 0.0. Reden:
+    anders betaalt elk order twee keer, en dat is aan de cijfers niet te zien.
+    Een waarschuwing in `BELGIE.md` volstond niet; zo'n configuratie bestaat nu
+    gewoon niet.
+
 ## Wat bewust open blijft
 
 **Belgische beurstaks: niet meer open, maar wel in een EIGEN laag.** Sinds
@@ -322,8 +346,10 @@ alleen bijschrijven   doet de maandscan     leest alleen
 - Daar kwam op 7 oktober 2026 `belgie.py` bij: de derde laag, met de Belgische
   beurstaks, de brokerkosten, de wisselkosten en de belasting op dividend en op
   winst bij verkoop. Ook zonder enige schrijfweg. De fiscale parameters staan er
-  op één plek, met een versienaam (`BE_TAX_RULES_2026_V1`) en per parameter of
-  hij exact is, een aanname, nog te bevestigen of nog niet ingesteld.
+  op één plek, met een versienaam en per parameter of hij exact is, een aanname,
+  nog te bevestigen of nog niet ingesteld. Er staan twee versies in:
+  `BE_TAX_RULES_2026_V1` als historisch spoor en `BE_TAX_RULES_2026_V2` als wat
+  er gerekend wordt (`REGELS_NU`). Zie beslissing 31.
 - `streamlit_app.py` is het dashboard. Het leest alleen, en het toont altijd de
   laatste uitvoering uit de keten — niet de uitvoering van het laatste signaal.
   Tussen een nieuw signaal en de wissel de avond erna blijft de oude
@@ -630,14 +656,11 @@ is nog geen broker gekozen, dus staat er "nog niet ingesteld" op het scherm in
 plaats van een verzonnen bedrag. Wordt er later een broker ingevuld, zet dan
 `basiskost_pct` op 0 - anders wordt dezelfde kost twee keer gerekend.
 
-**Twee bedragen zijn nog niet bevestigd, en dat staat op het scherm.** De
-opdracht gaf 4.855 euro als vrijgestelde schijf voor de meerwaardebelasting;
-publieke bronnen die op 7 oktober 2026 zijn nagekeken noemen 10.000 euro per jaar
-per persoon, geïndexeerd. En 833 euro voor de dividendvrijstelling hoort bij
-inkomstenjaar 2025; voor 2026 noemen bronnen 859 euro. Beide staan erin zoals
-opgedragen, met de status "te bevestigen" in `HERKOMST`, in de tabel op het
-dashboard en in `BELGIE.md`. Zolang dat niet uitgeklaard is, kan de geraamde
-belasting te hoog staan. Een correctie hoort een nieuwe regelversie te krijgen.
+**De twee bedragen die hier onbevestigd stonden, zijn dat sinds 8 oktober 2026
+niet meer.** De vrijgestelde schijf van de meerwaardebelasting is voor
+inkomstenjaar 2026 effectief 10.000 euro en staat in `BE_TAX_RULES_2026_V2`; de
+dividendvrijstelling van 833 euro is bevestigd. Zie "Auditronde 6" hieronder en
+hoofdstuk 5 en 6 van `BELGIE.md`.
 
 Zelf nagekeken, los van de opdracht: het dashboard is in twee toestanden
 gedraaid - de echte stand van vandaag en een nagebootste tweede wissel met
@@ -665,32 +688,78 @@ aangescherpt: ze telt nu alleen de aandelen die geen order kregen, want over all
 orders gerekend was ze bij een volledige wissel ruim genoeg om een rekenfout van
 tien cent te verbergen.
 
+## Auditronde 6, antwoord verwerkt op 8 oktober 2026
+
+ChatGPT heeft het pakket van ronde 6 zelf gedraaid en de laag grotendeels
+goedgekeurd: 279 van de 279 tests slaagden, `app.py` en `forward_log/ledger.jsonl`
+waren byte-identiek aan het bewijs, signaal, uitvoering en alle bestaande hashes
+waren onaangeroerd, en de Belgische laag bleek werkelijk afgeleid en zonder
+schrijfweg. Er kwamen zes gerichte correcties uit, alle zes uitgevoerd. Dit was
+nadrukkelijk **geen nieuwe auditronde**: er is dus geen `audit/VRAAG_*.md` voor
+bijgekomen. De vraag van ronde 6 staat nog waar ze stond, met bovenaan de
+vermelding dat ze beantwoord is.
+
+1. **De vrijgestelde schijf van de meerwaardebelasting is 10.000 euro**, niet de
+   4.855 euro uit de wettekst. Dat is geen indexering maar een uitdrukkelijke
+   bepaling in de parlementaire stukken bij de aangenomen wet, voor
+   inkomstenjaar 2026 (Kamer, dossier 56K1244). In een nieuwe versie gezet
+   (beslissing 31), met V1 bewaard.
+2. **De dividendvrijstelling van 833 euro is bevestigd** voor inkomstenjaar
+   2026 bij de FOD Financiën. De 859 euro die op 7 oktober als mogelijk
+   alternatief genoemd werd, is niet van toepassing. De bruto-vrijstellingslogica
+   is door de controleur aan het officiële FOD-voorbeeld voor buitenlandse
+   dividenden getoetst en bleek juist; ze is niet gewijzigd.
+3. **Transactiekosten blijven buiten de meerwaardebasis**, en dat is geen
+   aanname meer: de parlementaire toelichting zegt uitdrukkelijk dat kosten bij
+   verwerving of verkoop en belastingen zoals de beurstaks geen invloed hebben
+   op de berekening van de meerwaarde. Alleen de documentatiestatus veranderde.
+4. **`_los_kosten_op` is zelfconsistent gemaakt.** De controleur viel de solver
+   met willekeurige scenario's aan en vond een echt tegenvoorbeeld: de lijst van
+   aandelen die een order krijgen werd één keer vooraf bepaald en daarna
+   bevroren, zodat er met een minimumkost van vijf euro per order kosten
+   gerekend konden worden over een order dat er niet was - en omgekeerd. Er
+   staan nu twee lussen in elkaar: de binnenste zoekt de kosten bij een vaste
+   lijst, de buitenste controleert of de uitkomst werkelijk die lijst oplevert
+   en rekent anders opnieuw. Een lijst die blijft wisselen wordt expliciet
+   herkend en geeft een harde fout in plaats van een geraden getal. De instap
+   van 6 oktober 2026 komt er ongewijzigd uit.
+5. **Dubbele brokerkosten zijn onmogelijk gemaakt** (beslissing 33).
+6. **SPY blijft wat hij was**, en het dashboard zegt nu zelf "Belgische
+   praktijkbenchmark: nog niet gekozen". Er is bewust nog geen UCITS-fonds
+   gekozen.
+
+Daarnaast is de verouderde zin in `audit/VRAAG_2026-10-07_ronde6.md` dat ronde 5
+nog openstond rechtgezet: ronde 5 is gecontroleerd en groen bevonden (232 van de
+232 tests, de SPY-correctie op de ex-datum aanwezig, het verplichte
+wisselkoersbewijs aanwezig). Aan de code van ronde 5 is niets veranderd.
+
+Zelf nagekeken, los van de opdracht: het dashboard is met een nagebootste tweede
+wissel en twee dividenden gedraaid en met de ogen van een lezer bekeken. Drie
+dingen hersteld. De zin over de maatstaf stond twee keer onder elkaar nadat de
+melding over de praktijkbenchmark erbij kwam; "Geschatte belasting op je winst:
+€ 0,00" las als een veld dat nog niet ingevuld was, zoals de brokerkosten
+erboven, en zegt nu waarom het nul is; en de uitleg van de status "te
+bevestigen" stond nog onder de tabel terwijl geen enkele regel die status nog
+heeft, dus die legenda toont nu alleen wat er werkelijk staat.
+
+De grens is gehaald: `app.py`, `forward_log/`, `bewijs/`, `sw/strategy.py` en
+`sql/` zijn niet aangeraakt, en de vier hashes van het signaal, de strategie, het
+universum en de instap zijn ongewijzigd, nagerekend na de wijziging.
+
 ## Wat nu open staat
 
-1. **Er is een antwoord van ChatGPT binnen dat nog niet verwerkt is.** Bart
-   gaf dat op 8 oktober 2026 door; de tekst zelf staat nergens in dit project.
-   **Vraag hem die te plakken voor je iets anders doet**, en vraag erbij op welke
-   ronde ze slaat - dat is niet vastgelegd, en er staan er twee open:
+1. **Er staat geen auditronde meer open.** Ronde 5 (commit `85db9fe`) en
+   ronde 6 (commit `a60c2a9`) zijn allebei beantwoord en verwerkt; zie
+   "Auditronde 6" hierboven. Van ronde 3 (commit `ee05594`) is nooit een
+   antwoord doorgegeven, en dat is geen blokkade: ronde 4 keek dezelfde code na,
+   en 5 en 6 bouwen daarop verder.
 
-   | ronde | voorgelegd | waarover | de vraag |
-   |---|---|---|---|
-   | 5 | 7 oktober 2026, commit `85db9fe` | het SPY-dividend op de ex-datum en het verplichte wisselkoersbewijs | `audit/VRAAG_2026-10-07_ronde5.md` |
-   | 6 | nacht van 7 op 8 oktober 2026, commit `a60c2a9` | de Belgische laag | `audit/VRAAG_2026-10-07_ronde6.md` |
-
-   Behandel elke bevinding als in ronde 1 tot en met 6: eerst narekenen of ze
-   klopt, dan pas bouwen, nooit het bestaande bewijs aanraken, en een nieuwe
-   ronde krijgt een eigen `audit/VRAAG_*.md` in plaats van een wijziging van de
-   vorige. Komt er niets meer uit, dan is dat gewoon een regel in dit document,
-   geen nieuw bestand.
-
-   Reken erop dat de vrijgestelde schijf van de meerwaardebelasting als eerste
-   bevinding terugkomt. Dat is dan geen ontdekking maar een bevestiging: ronde 6
-   zegt zelf dat 4.855 euro publieke bronnen tegenspreekt (zie punt 4). Een
-   correctie hoort in een nieuwe regelversie naast `BE_TAX_RULES_2026_V1`
-   terecht te komen, niet in een stille aanpassing van die versie.
-
-   Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven. Dat is geen
-   blokkade: ronde 4 keek dezelfde code na, en 5 en 6 bouwen daarop verder.
+   Komt er een volgende ronde, behandel elke bevinding dan als in ronde 1 tot en
+   met 6: eerst narekenen of ze klopt, dan pas bouwen, nooit het bestaande
+   bewijs aanraken, en een nieuwe ronde krijgt een eigen `audit/VRAAG_*.md` in
+   plaats van een wijziging van de vorige. Een correctie op een fiscaal bedrag
+   hoort altijd in een nieuwe regelversie naast `BE_TAX_RULES_2026_V2`, nooit in
+   een stille aanpassing van die versie.
 
 2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
@@ -713,18 +782,18 @@ tien cent te verbergen.
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
    wijzigen niemand. Het e-mailadres van Barts broer is nog niet doorgegeven.
 
-4. **Twee Belgische bedragen bevestigen.** De vrijgestelde schijf van de
-   meerwaardebelasting (4.855 of 10.000 euro) en de dividendvrijstelling voor
-   inkomstenjaar 2026 (833 of 859 euro). Zie de sectie hierboven. Zolang dat
-   open staat, kan de geraamde belasting op het dashboard te hoog zijn. Wijzigen
-   gebeurt met een nieuwe regelversie naast `BE_TAX_RULES_2026_V1`, nooit met een
-   stille aanpassing van die versie.
+4. **Een regelversie voor inkomstenjaar 2027 maken**, zodra de geïndexeerde
+   bedragen van dat jaar bekend zijn. Tot dan rekent een raming over 2027 nog
+   met de bedragen van 2026 en zegt het dashboard dat erbij (beslissing 32).
+   Dringend wordt dit pas zodra er in 2027 werkelijk verkocht is.
 
 5. **Een broker kiezen, en daarna een Belgische praktijkbenchmark.** Zolang er
    geen broker is, staan de vier kostenparameters en de wisselkost op nul en zegt
-   het dashboard dat ze nog niet ingesteld zijn. De praktijkbenchmark wordt een
-   UCITS-instrument en wordt pas gekozen als broker en instrument onderzocht
-   zijn; SPY komt daar niet voor in aanmerking (beslissing 30).
+   het dashboard dat ze nog niet ingesteld zijn. Bij het invullen gaat
+   `basiskost_pct` in dezelfde stap naar 0.0 - anders weigert de configuratie
+   zichzelf (beslissing 33). De praktijkbenchmark wordt een UCITS-instrument en
+   wordt pas gekozen als broker en instrument onderzocht zijn; SPY komt daar
+   niet voor in aanmerking (beslissing 30).
 
 Wat je er níet mee moet doen: de bevroren curve herrekenen met andere kosten,
 de officiële curve vervangen door de realistische of door de Belgische, de scan
