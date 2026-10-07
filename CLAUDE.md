@@ -24,6 +24,15 @@ Het dashboard draait op Python 3.12 met de secrets in de Streamlit-instellingen:
 alleen `SUPABASE_URL`, `SUPABASE_ANON_KEY` en `ADMIN_WACHTWOORD`. De geheime
 schrijfsleutel staat daar met opzet niet: de app leest alleen.
 
+**Na een push die iets in `sw/` wijzigt: de app opnieuw opstarten.** Streamlit
+Community Cloud haalt de nieuwe code wel op ("Updated app!"), maar start het
+Python-proces niet opnieuw. Modules die al ingeladen zijn, blijven de oude.
+Daardoor draaide het dashboard van 6 oktober 16:49 UTC tot 7 oktober 01:10 UTC
+nog op de `sw/portfolio.py` van vóór de hardening, en crashte het op de nieuwe
+import. Opnieuw opstarten: rechtsonder **Manage app**, dan het menu met de drie
+puntjes, **Reboot app**. Daarna de pagina openen en kijken of ze er staat - een
+app die stuk is, toont een rode foutmelding aan iedereen met de link.
+
 De sleutels staan in `SLEUTELS_INVULLEN.txt`, buiten Git gehouden door
 `.gitignore`. Het beheerderswachtwoord is op 6 oktober 2026 ingevuld en werkt
 op het online dashboard.
