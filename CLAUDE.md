@@ -257,8 +257,10 @@ alleen bijschrijven   doet de maandscan     leest alleen
   een regel in het beheerslogboek. Een wisselkoers van een oude dag haalt het
   niet bij Yahoo maar vraagt hij aan jou, met bron.
 - `scripts/controleer_slot.py` valt de database aan met de geheime sleutel erbij.
-  Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026: 42 van 42
-  goed, tegen de echte database.
+  Draai dat na elke wijziging aan het schema. Stand 7 oktober 2026, nadat
+  `sql/03_smalle_deur.sql` erin stond: 55 van 55 goed tegen de echte database,
+  met `deur_versie 3`. (Met alleen 01 en 02 waren het 42 controles; de
+  13 nieuwe horen bij de smalle deur.)
 - `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
   externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
   sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
@@ -295,9 +297,10 @@ had de portefeuille vanaf dag één een winst getoond die niemand had kunnen mak
 Opgedragen door Bart op 6 oktober 2026 na een audit van ChatGPT, uitgevoerd op
 7 oktober 2026. Zeven punten, alle zeven gebouwd, en diezelfde nacht ook
 uitgevoerd: de SQL draait in Supabase, het schrijfteken staat erin, de drie
-secrets staan in GitHub en `scripts/controleer_slot.py` geeft 42 van 42 goed
-tegen de echte database. De harde grens eromheen,
-letterlijk van Bart: wijzig nooit het bestaande ledger-record, de bestaande
+secrets staan in GitHub en `scripts/controleer_slot.py` gaf toen 42 van 42 goed
+tegen de echte database (na de smalle deur van auditronde 2 zijn het er 55).
+De harde grens eromheen, letterlijk van Bart: wijzig nooit het bestaande
+ledger-record, de bestaande
 execution, de strategiehash, de formule of de historische bewijsbestanden. Dat
 is nagekomen: `forward_log/`, `bewijs/` en `app.py` zijn niet aangeraakt, en
 `sw/strategy.py` draagt nog exact dezelfde `STRATEGY_SPEC` en strategiehash.
@@ -406,16 +409,7 @@ en er zelf naar te kijken.
 
 ## Wat nu open staat
 
-1. **`sql/03_smalle_deur.sql` uitvoeren in Supabase.** Zolang dat niet gebeurd
-   is, staat de oude, wijdere deur nog open en kan er nog geen wissel
-   vastgelegd worden (de nieuwe kolommen bestaan dan niet). Daarna
-   `python scripts/controleer_slot.py` draaien: die hoort `deur_versie 3` te
-   zien en voert dan pas de nieuwe aanvalstests uit. **Draai het aanvalsscript
-   niet vóór de SQL erin staat** — het script weigert die pogingen dan zelf,
-   want zonder de nieuwe regels zou er een verzonnen wisselkoers in de
-   geschiedenis kunnen belanden.
-
-2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+1. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
    geworden, om twee redenen die allebei verholpen zijn:
 
@@ -430,7 +424,7 @@ en er zelf naar te kijken.
    via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
    of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
-3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+2. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
