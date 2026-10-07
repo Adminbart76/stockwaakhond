@@ -295,9 +295,11 @@ alleen bijschrijven   doet de maandscan     leest alleen
   met `deur_versie 3`. (Met alleen 01 en 02 waren het 42 controles; de
   13 nieuwe horen bij de smalle deur.) De volledige uitvoer van beide rondes
   staat in `audit/aanvalstest_2026-10-07.txt` en
-  `audit/aanvalstest_2026-10-07_ronde3.txt`. Na `sql/04_dividend_en_fx.sql`
-  horen het er 59 te zijn, met `deur_versie 4`; dat is nog niet gedraaid tegen
-  de echte database.
+  `audit/aanvalstest_2026-10-07_ronde3.txt`. Sinds
+  `sql/04_dividend_en_fx.sql` op 7 oktober 2026 in Supabase staat, zijn het er
+  59 van 59 goed met `deur_versie 4`; die uitvoer staat in
+  `audit/aanvalstest_2026-10-07_ronde4.txt`. De vier nieuwe controles gaan over
+  de verplichte betaaldatum van een dividend en over het wisselkoersbewijs.
 - `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
   externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
   sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
@@ -490,15 +492,7 @@ tweede berekening doorlopend was.
 
 ## Wat nu open staat
 
-1. **`sql/04_dividend_en_fx.sql` moet nog in Supabase uitgevoerd worden.**
-   Dat is de enige stap van de vier beslissingen die Bart zelf moet doen:
-   plakken in de SQL Editor, draaien, en daarna `python scripts/controleer_slot.py`.
-   Verwacht: `deur_versie 4` en 59 van 59 controles goed. Zolang dat niet
-   gebeurd is, weigert de database nog geen dividendrij zonder betaaldatum en
-   rekent ze de minuutbalk van een uitvoering niet na — de Python-kant doet dat
-   wel al.
-
-2. **Auditronde 4 ligt klaar.** De vraag staat in
+1. **Auditronde 4 ligt klaar.** De vraag staat in
    `audit/VRAAG_2026-10-07_ronde4.md` en gaat over de vier beslissingen van
    7 oktober 2026 (dividend bruto, SPY herbelegt, de minuutbalk, twee curves).
    Ze zegt er expliciet bij wat NIET meer gevraagd hoeft te worden, zodat de
@@ -507,7 +501,7 @@ tweede berekening doorlopend was.
    antwoord op, behandel het dan als ronde 1 en 2: eerst narekenen of de
    bevinding klopt, dan pas bouwen, en nooit het bestaande bewijs aanraken.
 
-3. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
    geworden, om twee redenen die allebei verholpen zijn:
 
@@ -522,7 +516,7 @@ tweede berekening doorlopend was.
    via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
    of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
-4. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,

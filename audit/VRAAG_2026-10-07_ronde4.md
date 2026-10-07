@@ -200,4 +200,7 @@ python -c "import json,hashlib,pathlib; ..."   # zie punt 1
 
 De database zit niet in dit pakket. Wat daarin staat, is na te rekenen met
 `sql/01_schema.sql` tot en met `sql/04_dividend_en_fx.sql` en met de uitvoer van
-`scripts/controleer_slot.py` in `audit/aanvalstest_*.txt`.
+`scripts/controleer_slot.py` in `audit/aanvalstest_*.txt`. Die van deze ronde
+staat in `audit/aanvalstest_2026-10-07_ronde4.txt`: 59 van 59 goed tegen de echte
+database, met `deur_versie 4`, gedraaid op 7 oktober 2026 nadat `sql/04` erin
+stond.
