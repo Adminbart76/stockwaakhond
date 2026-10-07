@@ -204,7 +204,12 @@ strategiehash hoort ook uit te komen op `canonical_json(STRATEGY_SPEC)` van
 
 De database zit niet in dit pakket. Wat daarin staat, is na te rekenen met
 `sql/01_schema.sql` tot en met `sql/05_fx_bewijs_verplicht.sql` en met de
-uitvoer van `scripts/controleer_slot.py` in `audit/aanvalstest_*.txt`. Let op:
-`sql/05` moet op het moment dat je dit leest wel in Supabase staan — het script
-hoort `deur_versie 5` te melden. Staat er 4, dan is 05 niet uitgevoerd of is 04
-er daarna nog eens over gegaan, en dan slaat het script daar alarm over.
+uitvoer van `scripts/controleer_slot.py` in `audit/aanvalstest_*.txt`. Die van
+deze ronde staat in `audit/aanvalstest_2026-10-07_ronde5.txt`: **61 van 61 goed
+tegen de echte database, met `deur_versie 5`**, gedraaid op 7 oktober 2026 nadat
+`sql/05` erin stond.
+
+Dat script test het GEDRAG van de nieuwe wachter niet — zie het punt daarover in
+paragraaf 3. Wat het wél vaststelt, is dat de trigger bestaat, aanstaat, en dat
+`hardening_status()` versie 5 meldt; en dat het signaal, het universum, de
+uitvoering en de keten na alle aanvalspogingen onveranderd zijn.

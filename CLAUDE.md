@@ -319,11 +319,11 @@ alleen bijschrijven   doet de maandscan     leest alleen
   59 van 59 goed met `deur_versie 4`; die uitvoer staat in
   `audit/aanvalstest_2026-10-07_ronde4.txt`. De vier nieuwe controles gaan over
   de verplichte betaaldatum van een dividend en over het wisselkoersbewijs.
-  Sinds auditronde 5 verwacht het script `deur_versie 5` en komen er twee
-  controles bij (de verplichte bewijsvelden van een wissel, en dat een balk van
-  een uur niet voor een minuutbalk kan doorgaan). **Zolang
-  `sql/05_fx_bewijs_verplicht.sql` niet in Supabase staat, meldt het script daar
-  FOUT over** - dat is geen vergissing maar precies de bedoeling.
+  Sinds `sql/05_fx_bewijs_verplicht.sql` op 7 oktober 2026 in Supabase staat,
+  zijn het er 61 van 61 goed met `deur_versie 5`; die uitvoer staat in
+  `audit/aanvalstest_2026-10-07_ronde5.txt`. De twee nieuwe controles gaan over
+  de verplichte bewijsvelden van een wissel en over een balk van een uur die
+  niet voor een minuutbalk kan doorgaan.
 - `scripts/maak_auditpakket.py` bouwt `stockwaakhond-voor-audit.zip` voor een
   externe controleur. De inhoud komt uit `git ls-files`, zodat er geen
   sleutelbestand in kan belanden; daarna wordt het pakket uitgepakt en worden
@@ -556,25 +556,13 @@ en met `sql/04` zijn evenmin aangeraakt; de vier hashes van het signaal, de
 strategie, het universum en de instap zijn ongewijzigd, nagerekend na de
 wijziging.
 
-**`sql/05` moet nog in Supabase gezet worden.** Zolang dat niet gebeurd is, geldt
-de eis alleen in de code en meldt `scripts/controleer_slot.py` `deur_versie 4` in
-plaats van 5. Zie het eerste punt hieronder.
+`sql/05` staat sinds 7 oktober 2026 in Supabase. `scripts/controleer_slot.py`
+gaf diezelfde dag 61 van 61 goed met `deur_versie 5`; de volledige uitvoer staat
+in `audit/aanvalstest_2026-10-07_ronde5.txt`.
 
 ## Wat nu open staat
 
-1. **`sql/05_fx_bewijs_verplicht.sql` staat nog niet in Supabase.** Dat is de
-   enige stap die Bart zelf moet doen; de code eist het bewijs al wel. Zolang
-   05 er niet in staat, mag een wissel haar wisselkoersbewijs in de database
-   nog weglaten. Zo zet je het erin:
-
-   - open https://supabase.com/dashboard/project/ibdscndklmgvseksgrkb/sql/new
-   - plak de volledige inhoud van `sql/05_fx_bewijs_verplicht.sql` en klik
-     **Run**
-   - draai daarna `python scripts/controleer_slot.py`; dat hoort `deur_versie 5`
-     te melden en alle controles goed. Bewaar die uitvoer in
-     `audit/aanvalstest_2026-10-07_ronde5.txt`, zoals bij de vorige rondes.
-
-2. **Auditronde 5 is nog niet voorgelegd.** De vraag staat klaar in
+1. **Auditronde 5 is nog niet voorgelegd.** De vraag staat klaar in
    `audit/VRAAG_2026-10-07_ronde5.md` en gaat over de twee correcties van ronde
    4 (het SPY-dividend op dezelfde ex-datum, en het verplichte
    wisselkoersbewijs). Bouw het pakket met
@@ -586,7 +574,7 @@ plaats van 5. Zie het eerste punt hieronder.
    vorige. Van ronde 3 (commit `ee05594`) is nooit een antwoord doorgegeven; dat
    is geen blokkade meer, want ronde 4 keek dezelfde code na.
 
-3. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
+2. **De dagtaak van de eerstvolgende beursdag nakijken.** De eerste geplande
    ronde heeft gedraaid in de nacht van 6 op 7 oktober 2026 en is rood
    geworden, om twee redenen die allebei verholpen zijn:
 
@@ -601,7 +589,7 @@ plaats van 5. Zie het eerste punt hieronder.
    via de instap, en de dubbele poging schreef niets nieuws. Kijk bij Actions
    of de eerstvolgende beursdag groen is en of er een wisselkoers bij staat.
 
-4. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
+3. **Wie het dashboard mag zien.** Op het gratis plan van Streamlit heet het
    "deploy a public app": iedereen met de link kan kijken. Nog na te gaan of er
    in de app-instellingen onder Sharing alsnog een beperking tot genodigden
    mogelijk is. Zo niet, dan is dat een bewuste aanvaarding: lezen kan iedereen,
